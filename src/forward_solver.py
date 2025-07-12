@@ -10,6 +10,8 @@ from dolfinx import mesh, fem
 from dolfinx.fem.petsc import LinearProblem
 from dolfinx.plot import vtk_mesh
 
+from domain_coefficient import ThermalConductivity, HeatSource
+
 class SteadyHeatForwardSolver2D:
     """
     Quick prototype of a forward solver for the steady-state Poisson heat equation on a 2D unit square.
@@ -19,8 +21,8 @@ class SteadyHeatForwardSolver2D:
     def __init__(self,
                  nmesh: int = 64,
                  mesh_type: str = 'quadrilateral',
-                 h: Union[float, fem.Constant, Callable] = 1.0,
-                 q: Union[float, fem.Constant, Callable] = 1.0,
+                 h: Union[float, fem.Constant, fem.Expression, Callable] = 1.0,
+                 q: Union[float, fem.Constant, fem.Expression, Callable] = 1.0,
                  DBC_value: float = 300.0,
                  KSP_opts: dict = None):
         """
@@ -35,7 +37,7 @@ class SteadyHeatForwardSolver2D:
         DBC_value : Dirichlet BC at the bottom y=0. Default=300.
         KSP_opts : Dictionary of PETSc KSP options. Default=None.
         """
-        # Set up the problem domain and function space on a unit square mesh.
+        # Define the problem domain, discretized on a unit square mesh. Two mesh types are supported: 'quadrilateral' and 'triangle'.
         if mesh_type not in ['quadrilateral','triangle']:
             raise ValueError(f"Unsupported mesh type: {mesh_type}. Supported types: ['quadrilateral','triangle'].")
         elif mesh_type == 'quadrilateral':
@@ -43,11 +45,12 @@ class SteadyHeatForwardSolver2D:
         else:
             self.mesh = mesh.create_unit_square(MPI.COMM_WORLD, nmesh, nmesh, mesh.CellType.triangle)
         x = ufl.SpatialCoordinate(self.mesh)
+        # Define the function space on the domain mesh, using Lagrange elements of degree 1.
         self.V    = fem.functionspace(self.mesh, ('Lagrange', 1))
 
-        #  Define thermal conductivity and heat source as domain coefficients.
-        self.h = self._build_domain_func(h)
-        self.q = self._build_domain_func(q)
+        # Define thermal conductivity and heat source as domain coefficients.
+        self.h = ThermalConductivity(h, self.mesh, self.V).function
+        self.q = HeatSource(q, self.mesh, self.V).function
 
         # Define domain boundary conditions.
             # 1) Dirichlet BC at the bottom
@@ -79,29 +82,6 @@ class SteadyHeatForwardSolver2D:
             'ksp_rtol': 1e-8
         }
 
-    def _build_domain_func(self, param):
-        """
-        Return either a fem.Constant or interpolated Function on the domain.
-        Parameters
-        ----------
-        param : float, fem.Constant or Callable
-            - float, returns a fem.Constant on the mesh.
-            - fem.Constant, simply returns the same fem.Constant.
-            - Callable, returns the fem.Function.interpolate(callable).
-        Returns
-        -------
-        f : fem.Constant or fem.Function, a domain function.
-        """
-        if isinstance(param, (int, float)):
-            return fem.Constant(self.mesh,PETSc.ScalarType(param))
-        if isinstance(param, fem.Constant):
-            return param
-        if callable(param):
-            f = fem.Function(self.V)
-            f.interpolate(param)
-            return f
-        raise TypeError(f"Cannot build coeff from {param!r}")
-
     def solve(self):
         """
         Solve the steady-state heat equation on the domain, using the defined weak form and boundary conditions.
@@ -129,7 +109,7 @@ class SteadyHeatForwardSolver2D:
         Parameters
         ----------
         cmap       : str, colormap. Default="viridis".
-        zero_point : float, the "zero-point" temperature to be subtracted from the surface temperature T(x,y). Default=300., i.e. the bottom boundary temperature.
+        zero_point : float, the "zero-point" temperature to be subtracted from the surface temperature T(x,y). Default=300., the bottom boundary temperature.
         show_edges : bool, whether to plot mesh edges. Default=False.
         """
         assert hasattr(self, 'T'), "No solution available. Call solve() first."
@@ -143,7 +123,7 @@ class SteadyHeatForwardSolver2D:
 
         # Setup and fill in the pv.UnstructuredGrid.
         grid = pv.UnstructuredGrid(topology, cell_types, geometry)
-        grid.point_data["DeltaT"] = self.T.x.array[: geometry.shape[0]] - boundary_value
+        grid.point_data["DeltaT"] = self.T.x.array[: geometry.shape[0]] - zero_point
 
         # Plot the temperature distribution.
         grid.plot(
