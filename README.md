@@ -6,6 +6,7 @@
 ## Installation
 
 ```
-conda env create -f environment.yml
+conda env create -n steady-2d-heat-inverse -f environment.yml
+conda activate steady-2d-heat-inverse
 pip install -e .
 ```

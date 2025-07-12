@@ -10,6 +10,7 @@ setup(
         "numpy",
         "mpi4py",
         "petsc4py",
+        "fenics-basix",
         "fenics-ufl",
         "pyvista",
     ],

@@ -2,10 +2,11 @@ name: steady-2d-heat
 channels:
   - conda-forge
 dependencies:
-  - python>=3.8
+  - python>=3.11
   - numpy
   - mpi4py
   - petsc4py
+  - fenics-basix
   - fenics-ufl
   - fenics-dolfinx
   - pyvista
