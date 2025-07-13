@@ -17,7 +17,7 @@ from plotting_utils import plot_scalar_mesh
 class SteadyHeatForwardSolver2D:
     """
     Quick prototype of a forward solver for the steady-state Poisson heat equation on a 2D unit square.
-    Dirichlet boundary condition is T = 300 K on the bottom edge (y == 0).
+    Dirichlet boundary condition is T = 300K on the bottom edge (y == 0).
     Neumann boundary conditions are insulated (zero flux) on the other three edges.
     """
     def __init__(self,
@@ -26,7 +26,7 @@ class SteadyHeatForwardSolver2D:
                  h: Union[float, fem.Constant, fem.Expression, Callable] = 1.0,
                  q: Union[float, fem.Constant, fem.Expression, Callable] = 1.0,
                  DBC_value: float = 300.0,
-                 KSP_opts: dict = None):
+                 petsc_opts: dict = None):
         """
         Parameters
         ----------
@@ -37,7 +37,7 @@ class SteadyHeatForwardSolver2D:
                     Default=1.
         q        : heat source, same allowed types as h. Default=1.
         DBC_value : Dirichlet BC at the bottom y=0. Default=300.
-        KSP_opts : Dictionary of PETSc KSP options. Default=None.
+        petsc_opts : Dictionary of PETSc KSP options. Default=None.
         """
         # Define the problem domain, discretized on a unit square mesh. Two mesh types are supported: 'quadrilateral' and 'triangle'.
         if mesh_type not in ['quadrilateral','triangle']:
@@ -78,12 +78,13 @@ class SteadyHeatForwardSolver2D:
         self.L = self.q.function * v * ufl.dx
 
         # Specify options for the PETSc KSP linear system solver.
-        self.KSP_opts = KSP_opts or {
+        self.petsc_opts = petsc_opts or {
             'ksp_type': 'cg',
             'pc_type': 'hypre',
             'ksp_rtol': 1e-8
         }
 
+    # Main driver method to solve the steady-state heat equation as a linear variational problem.
     def solve(self):
         """
         Solve the steady-state heat equation on the domain, using the defined weak form and boundary conditions.
@@ -91,15 +92,49 @@ class SteadyHeatForwardSolver2D:
         -------
         T : fem.Function, the temperature distribution on the mesh.
         """
-        # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs, solver_options=self.KSP_opts.
+        # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs, solver_options=self.petsc_opts.
         self.problem = LinearProblem(self.a,
                                      self.L,
                                      bcs=self.bcs,
-                                     petsc_options=self.KSP_opts)
+                                     petsc_options=self.petsc_opts)
         T = self.problem.solve()
         T.name = "Temperature"
         self.T = T
         return T
+
+    # Supporting method to inject a Gaussian noise field into the solution.
+    def add_noise(self, mu: float = 0.0, sigma: float = 1.0, seed: int | None = None):
+        """
+        Add uncorrelated Gaussian noise N(mu, sigma^2) to the solution T(x,y).
+        Default noise distribution is a standard normal N(0,1).
+
+        Parameters
+        ----------
+        mu : float
+            Mean of the noise to add (in the same unit as T). Default=0.0.
+        sigma : float
+            Standard deviation of the noise to add (in the same unit as T). Default=1.0.
+        seed : int | None
+            Random number generator seed, for reproducibility.
+        """
+        # Make sure we have a solution
+        if not hasattr(self, "T"):
+            raise RuntimeError("No solution available. Call solve() before injecting noise.")
+
+        # Only modify the owned entries
+        n_owned = self.mesh.geometry.x.shape[0]
+
+        # Generate noise on rank 0, broadcast to all ranks
+        if MPI.COMM_WORLD.rank == 0:
+            rng = np.random.default_rng(seed)
+            noise = rng.normal(loc=0.0, scale=sigma, size=n_owned)
+        else:
+            noise = np.empty(n_owned, dtype=float)
+        MPI.COMM_WORLD.Bcast(noise, root=0)
+
+        # Inject and sync
+        self.T.x.array[:n_owned] += noise
+        self.T.x.scatter_forward()
 
     # Write to XDMF file.
     def export_xdmf(self, filename: str):
@@ -137,7 +172,7 @@ class SteadyHeatForwardSolver2D:
         Parameters
         ----------
         cmap       : str, colormap. Default="viridis".
-        zero_point : float, the "zero-point" temperature to be subtracted from the surface temperature T(x,y). Default=300., the bottom boundary temperature.
+        zero_point : float, the "zero-point" temperature to be subtracted from the surface temperature T(x,y). Default=300K, the bottom boundary temperature.
         **kwargs     : additional keyword arguments, see `plotting_utils.plot_scalar_mesh()` for details.
         """
         assert hasattr(self, 'T'), "No solution available. Call solve() first."
