@@ -3,8 +3,13 @@ from typing import Callable, Union
 
 import numpy as np
 from petsc4py import PETSc
-from dolfinx import mesh, fem
 import ufl
+
+# dolphinx imports
+from dolfinx import mesh, fem
+
+# local imports
+from plotting_utils import plot_scalar_mesh
 
 UserInput    = Union[Union[int, float], fem.Constant, fem.Expression, Callable[[np.ndarray], np.ndarray]]
 
@@ -18,7 +23,7 @@ class BaseDomainCoefficient(ABC):
         self._user_input = user_input
         self._mesh = mesh
         self._V = V
-        self.function = self._build()          # guaranteed by ABC
+        self.function = self._build()
 
     def _coefficient_from_user_input(self) -> Union[fem.Constant, fem.Function]:
         """
@@ -39,16 +44,20 @@ class BaseDomainCoefficient(ABC):
 
         # Handle scalar (int,float) or fem.Constant inputs
         if isinstance(self._user_input, fem.Constant):
+            self.constant = True
             return self._user_input
         if isinstance(self._user_input, (int, float)):
+            self.constant = True
             return fem.Constant(self._mesh, PETSc.ScalarType(self._user_input))
         # Handle callable or fem.Expression inputs
         if isinstance(self._user_input, fem.Expression):
+            self.constant = False
             ## If input is already a fem.Expression, interpolate directly onto the mesh
             f = fem.Function(self._V)
             f.interpolate(self._user_input)
             return f
         if callable(self._user_input):
+            self.constant = False
             ## If input is python callable, pack the user-input callable into a fem.Expression before interpolation
             expr = fem.Expression(
                     self._user_input(ufl.SpatialCoordinate(self._mesh)),
@@ -79,6 +88,17 @@ class ThermalConductivity(BaseDomainCoefficient):
     def _build(self):
         return self._coefficient_from_user_input()
 
+    def plot_input_thermal_conductivity(self, **kwargs):
+        """
+        Plot the input thermal conductivity coefficient on a pyvista.UnstructuredGrid.
+        """
+        if self.constant:
+            vals = self.function.value
+            kwargs.update(user_scalar_bar={'n_labels': 3})
+        else:
+            vals = self.function.x.array[:self._mesh.geometry.x.shape[0]]
+        grid_plot = plot_scalar_mesh(self._mesh, vals, "h(x,y)", cmap="plasma", **kwargs)
+        return grid_plot
 
 class HeatSource(BaseDomainCoefficient):
     """
@@ -87,3 +107,15 @@ class HeatSource(BaseDomainCoefficient):
 
     def _build(self):
         return self._coefficient_from_user_input()
+
+    def plot_input_heat_source(self, **kwargs):
+        """
+        Plot the input heat source coefficient on a pyvista.UnstructuredGrid.
+        """
+        if self.constant:
+            vals = self.function.value
+            kwargs.update(user_scalar_bar={'n_labels': 3})
+        else:
+            vals = self.function.x.array[:self._mesh.geometry.x.shape[0]]
+        grid_plot = plot_scalar_mesh(self._mesh, vals, "q(x,y)", cmap="plasma", **kwargs)
+        return grid_plot

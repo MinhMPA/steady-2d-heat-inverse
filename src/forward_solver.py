@@ -3,14 +3,15 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 import ufl
-import pyvista as pv
 
 # dolphinx imports
 from dolfinx import mesh, fem
 from dolfinx.fem.petsc import LinearProblem
 from dolfinx.plot import vtk_mesh
 
+# local imports
 from domain_coefficient import ThermalConductivity, HeatSource
+from plotting_utils import plot_scalar_mesh
 
 class SteadyHeatForwardSolver2D:
     """
@@ -49,8 +50,8 @@ class SteadyHeatForwardSolver2D:
         self.V    = fem.functionspace(self.mesh, ('Lagrange', 1))
 
         # Define thermal conductivity and heat source as domain coefficients.
-        self.h = ThermalConductivity(h, self.mesh, self.V).function
-        self.q = HeatSource(q, self.mesh, self.V).function
+        self.h = ThermalConductivity(h, self.mesh, self.V)
+        self.q = HeatSource(q, self.mesh, self.V)
 
         # Define domain boundary conditions.
             # 1) Dirichlet BC at the bottom
@@ -72,8 +73,8 @@ class SteadyHeatForwardSolver2D:
         # Define the weak form of the Poisson equation.
         u = ufl.TrialFunction(self.V)
         v = ufl.TestFunction(self.V)
-        self.a = ufl.dot(self.h*ufl.grad(u), ufl.grad(v)) * ufl.dx
-        self.L = self.q * v * ufl.dx
+        self.a = ufl.dot(self.h.function*ufl.grad(u), ufl.grad(v)) * ufl.dx
+        self.L = self.q.function * v * ufl.dx
 
         # Specify options for the PETSc KSP linear system solver.
         self.KSP_opts = KSP_opts or {
@@ -99,38 +100,21 @@ class SteadyHeatForwardSolver2D:
         self.T = T
         return T
 
-    def plot(self,
-             cmap: str = 'viridis',
-             zero_point: float = 300.0,
-             show_edges: bool = False,
-             ):
+    def plot_output_temperature(self, zero_point: float = 300.0, **kwargs):
         """
         Plot the temperature distribution on a pyvista.UnstructuredGrid.
         Parameters
         ----------
         cmap       : str, colormap. Default="viridis".
         zero_point : float, the "zero-point" temperature to be subtracted from the surface temperature T(x,y). Default=300., the bottom boundary temperature.
-        show_edges : bool, whether to plot mesh edges. Default=False.
+        **kwargs     : additional keyword arguments, see `plotting_utils.plot_scalar_mesh()` for details.
         """
         assert hasattr(self, 'T'), "No solution available. Call solve() first."
-
-        # Return early if not the root process.
-        if MPI.COMM_WORLD.rank != 0:
-            return
-
-        # Retrieve the mesh topology, cell types, and geometry.
-        topology, cell_types, geometry = vtk_mesh(self.mesh)
-
-        # Setup and fill in the pv.UnstructuredGrid.
-        grid = pv.UnstructuredGrid(topology, cell_types, geometry)
-        grid.point_data["DeltaT"] = self.T.x.array[: geometry.shape[0]] - zero_point
-
-        # Plot the temperature distribution.
-        grid.plot(
-            scalars="DeltaT", cmap=cmap, show_edges=show_edges,
-            scalar_bar_args=dict(
-                fmt="%.2e", n_labels=5,
-                title="T-T0", font_family="arial",
-                title_font_size=20, label_font_size=14
-            )
-        )
+        vals = self.T.x.array[: self.mesh.geometry.x.shape[0]] - zero_point
+        if zero_point != 0.0:
+            print(r"Plotting relative temperature distribution DeltaT =T-T_0 with T_0=%.1fK." %zero_point)
+            grid_plot = plot_scalar_mesh(self.mesh, vals, "ΔT [K]", cmap="viridis", **kwargs)
+        else:
+            print("Plotting absolute temperature distribution T(x,y).")
+            grid_plot = plot_scalar_mesh(self.mesh, vals, "T [K]", cmap="viridis", **kwargs)
+        return grid_plot
