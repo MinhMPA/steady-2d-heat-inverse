@@ -5,9 +5,10 @@ from petsc4py import PETSc
 import ufl
 
 # dolphinx imports
-from dolfinx import mesh, fem
+from dolfinx import mesh, fem, default_scalar_type
 from dolfinx.fem.petsc import LinearProblem
 from dolfinx.plot import vtk_mesh
+from dolfinx.io import XDMFFile
 
 # local imports
 from domain_coefficient import ThermalConductivity, HeatSource
@@ -54,7 +55,7 @@ class SteadyHeatForwardSolver2D:
         self.q = HeatSource(q, self.mesh, self.V)
 
         # Define domain boundary conditions.
-            # 1) Dirichlet BC at the bottom
+            ## 1) Dirichlet BC at the bottom
         bottom = mesh.locate_entities_boundary(
             self.mesh, self.mesh.topology.dim-1,
             lambda x: np.isclose(x[1], 0.0)
@@ -67,8 +68,8 @@ class SteadyHeatForwardSolver2D:
                         dofs,
                         self.V
                     )]
-            # 2) Neumann BC on the other three edges (insulated, zero flux)
-            # Note: No explicit Neumann BC is needed in the weak form.
+            ## 2) Neumann BC on the other three edges (insulated, zero flux)
+            ## Note: No explicit Neumann BC is needed in the weak form.
 
         # Define the weak form of the Poisson equation.
         u = ufl.TrialFunction(self.V)
@@ -100,6 +101,36 @@ class SteadyHeatForwardSolver2D:
         self.T = T
         return T
 
+    # Write to XDMF file.
+    def export_xdmf(self, filename: str):
+        """
+        Write the domain mesh, output temperature, input thermal conductivity and input heat source to disk in XDMF/HDF5 format.
+        Parameters
+        ----------
+        filename : str, the output filename for the XDMF file.
+        """
+        def _wrap_constant_in_function(coefficient):
+            """
+            Wrap a fem.Constant in a fem.Function for export.
+            Only meant to be used for ThermalConductivity and HeatSource, which are either fem.Function or fem.Constant.
+            """
+            if isinstance(coefficient, fem.Function):
+                return coefficient
+            else:
+                f = fem.Function(self.V)
+                f.interpolate(lambda x: np.full(x.shape[1], coefficient.value, dtype=default_scalar_type))
+                return f
+        wrapped_hfunc = _wrap_constant_in_function(self.h.function)
+        wrapped_hfunc.name = "ThermalConductivity"
+        wrapped_qfunc = _wrap_constant_in_function(self.q.function)
+        wrapped_qfunc.name = "HeatSource"
+        with XDMFFile(self.mesh.comm, filename, "w") as xdmf:
+            xdmf.write_mesh(self.mesh)
+            xdmf.write_function(self.T)
+            xdmf.write_function(wrapped_hfunc)
+            xdmf.write_function(wrapped_qfunc)
+
+    # Visualize output temperature.
     def plot_output_temperature(self, zero_point: float = 300.0, **kwargs):
         """
         Plot the temperature distribution on a pyvista.UnstructuredGrid.
