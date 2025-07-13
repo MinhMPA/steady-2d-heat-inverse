@@ -30,14 +30,13 @@ class SteadyHeatForwardSolver2D:
         """
         Parameters
         ----------
-        nmesh    : number of mesh nodes per side of the unit square, i.e. (x,y) in [0,1]. Default=64.
-        h        : thermal conductivity, accept either
+        nmesh      : number of mesh nodes per side of the unit square, i.e. (x,y) in [0,1].
+        h          : thermal conductivity, accept either
                      - float or fem.Constant, a fem.Constant on the domain;
                      - callable(x,y), a spatially-varying fem.Function.interpolate(callable) on the domain.
-                    Default=1.
-        q        : heat source, same allowed types as h. Default=1.
-        DBC_value : Dirichlet BC at the bottom y=0. Default=300.
-        petsc_opts : Dictionary of PETSc KSP options. Default=None.
+        q          : heat source, same allowed types as h.
+        DBC_value  : Dirichlet BC at the bottom y=0.
+        petsc_opts : Dictionary of PETSc KSP options.
         """
         # Define the problem domain, discretized on a unit square mesh. Two mesh types are supported: 'quadrilateral' and 'triangle'.
         if mesh_type not in ['quadrilateral','triangle']:
@@ -85,12 +84,12 @@ class SteadyHeatForwardSolver2D:
         }
 
     # Main driver method to solve the steady-state heat equation as a linear variational problem.
-    def solve(self):
+    def solve(self) -> fem.Function:
         """
         Solve the steady-state heat equation on the domain, using the defined weak form and boundary conditions.
         Returns
         -------
-        T : fem.Function, the temperature distribution on the mesh.
+        T : the temperature distribution on the mesh.
         """
         # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs, solver_options=self.petsc_opts.
         self.problem = LinearProblem(self.a,
@@ -103,38 +102,39 @@ class SteadyHeatForwardSolver2D:
         return T
 
     # Supporting method to inject a Gaussian noise field into the solution.
-    def add_noise(self, mu: float = 0.0, sigma: float = 1.0, seed: int | None = None):
+    def add_noise(self, mu: float = 0.0, sigma: float = 1.0, seed: int | None = None) -> fem.Function:
         """
         Add uncorrelated Gaussian noise N(mu, sigma^2) to the solution T(x,y).
         Default noise distribution is a standard normal N(0,1).
 
         Parameters
         ----------
-        mu : float
-            Mean of the noise to add (in the same unit as T). Default=0.0.
-        sigma : float
-            Standard deviation of the noise to add (in the same unit as T). Default=1.0.
-        seed : int | None
-            Random number generator seed, for reproducibility.
+        mu : mean of the noise to add (in the same unit as T).
+        sigma : standard deviation of the noise to add (in the same unit as T).
+        seed : random number generator seed, for reproducibility.
         """
-        # Make sure we have a solution
         if not hasattr(self, "T"):
-            raise RuntimeError("No solution available. Call solve() before injecting noise.")
+            raise RuntimeError("No solution available. Call solve() first.")
 
-        # Only modify the owned entries
-        n_owned = self.mesh.geometry.x.shape[0]
+        T_obs = fem.Function(self.T.function_space)
+        # Number of DOFs local to the MPI rank
+        n_local_dofs = self.mesh.geometry.x.shape[0]
+        T_obs.x.array[:n_local_dofs] = self.T.x.array[:n_local_dofs]
 
-        # Generate noise on rank 0, broadcast to all ranks
+        # Generate noise on rank 0 and broadcast noise to all ranks
         if MPI.COMM_WORLD.rank == 0:
             rng = np.random.default_rng(seed)
-            noise = rng.normal(loc=0.0, scale=sigma, size=n_owned)
+            noise = rng.normal(loc=0.0, scale=sigma, size=n_local_dofs)
         else:
-            noise = np.empty(n_owned, dtype=float)
+            noise = np.empty(n_local_dofs, dtype=float)
         MPI.COMM_WORLD.Bcast(noise, root=0)
 
-        # Inject and sync
-        self.T.x.array[:n_owned] += noise
-        self.T.x.scatter_forward()
+        # Inject noise to T_obs and broadcast T_obs to all ranks
+        T_obs.x.array[:n_local_dofs] += noise
+        T_obs.x.scatter_forward()
+        T_obs.name = "ObservedTemperature"
+        self.T_obs = T_obs
+        return T_obs
 
     # Write to XDMF file.
     def export_xdmf(self, filename: str):
@@ -162,21 +162,26 @@ class SteadyHeatForwardSolver2D:
         with XDMFFile(self.mesh.comm, filename, "w") as xdmf:
             xdmf.write_mesh(self.mesh)
             xdmf.write_function(self.T)
+            xdmf.write_function(self.T_obs)
             xdmf.write_function(wrapped_hfunc)
             xdmf.write_function(wrapped_qfunc)
 
     # Visualize output temperature.
-    def plot_output_temperature(self, zero_point: float = 300.0, **kwargs):
+    def plot_output_temperature(self, zero_point: float = 300.0, noiseless: bool = True, **kwargs):
         """
         Plot the temperature distribution on a pyvista.UnstructuredGrid.
         Parameters
         ----------
-        cmap       : str, colormap. Default="viridis".
-        zero_point : float, the "zero-point" temperature to be subtracted from the surface temperature T(x,y). Default=300K, the bottom boundary temperature.
-        **kwargs     : additional keyword arguments, see `plotting_utils.plot_scalar_mesh()` for details.
+        zero_point : the "zero-point" temperature to be subtracted from the surface temperature T(x,y).
+        noiseless  : whether to plot the noiseless temperature `T` or the noise-injected temperature `T_obs`
+        **kwargs   : additional keyword arguments, see `plotting_utils.plot_scalar_mesh()` for details.
         """
-        assert hasattr(self, 'T'), "No solution available. Call solve() first."
-        vals = self.T.x.array[: self.mesh.geometry.x.shape[0]] - zero_point
+        if noiseless:
+            assert hasattr(self, 'T'), "No solution available. Call solve() first."
+            vals = self.T.x.array[: self.mesh.geometry.x.shape[0]] - zero_point
+        else:
+            assert hasattr(self, 'T_obs'), "No solution available. Call solve() first."
+            vals = self.T_obs.x.array[: self.mesh.geometry.x.shape[0]] - zero_point
         if zero_point != 0.0:
             print(r"Plotting relative temperature distribution DeltaT =T-T_0 with T_0=%.1fK." %zero_point)
             grid_plot = plot_scalar_mesh(self.mesh, vals, "ΔT [K]", cmap="viridis", **kwargs)

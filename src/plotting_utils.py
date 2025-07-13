@@ -16,19 +16,13 @@ def plot_scalar_mesh(mesh, data: ArrayLike, name: str,
 
     Parameters
     ----------
-    mesh: dolfinx.mesh
-    data: ArrayLike, (n_cells,)
-        A scalar field on the mesh.
-    name: str
-        Displayed name of the scalar field.
-    cmap: str, optional. Default is "viridis".
-        Colormap.
-    show_edges: bool, optional. Default is False.
-        Whether to show mesh edges.
-    n_labels: int, optional. Default is 5.
-        Number of tick labels on the color bar.
-    user_scalar_bar: dict, optional. Default is None.
-        User-defined additional arguments for the scalar bar.
+    mesh : dolfinx.mesh.
+    data : (n_cells,) scalar field on the mesh.
+    name : displayed name of the scalar field.
+    cmap : colormap.
+    show_edges: whether to show mesh edges.
+    n_labels: number of tick labels on the color bar.
+    user_scalar_bar: user-defined additional arguments for the scalar bar.
     """
     if MPI.COMM_WORLD.rank != 0:
         return
