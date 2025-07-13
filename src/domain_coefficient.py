@@ -59,7 +59,7 @@ class BaseDomainCoefficient(ABC):
         if callable(self._user_input):
             domain_coeff = self._user_input(ufl.SpatialCoordinate(self._mesh))
             ## Edge case: If the user-input callable actually returns a constant coefficient, convert it to fem.Constant
-            if np.asarray(domain_coeff).ndim == 0:
+            if isinstance(domain_coeff, (int, float, PETSc.ScalarType)):
                 self.constant = True
                 return fem.Constant(self._mesh, PETSc.ScalarType(domain_coeff))
             ## If the user-input callable really returns a spatially-varying coefficient, pack it into a fem.Expression before interpolation
