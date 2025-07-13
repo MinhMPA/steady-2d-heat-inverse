@@ -57,15 +57,18 @@ class BaseDomainCoefficient(ABC):
             f.interpolate(self._user_input)
             return f
         if callable(self._user_input):
-            self.constant = False
-            ## If input is python callable, pack the user-input callable into a fem.Expression before interpolation
-            expr = fem.Expression(
-                    self._user_input(ufl.SpatialCoordinate(self._mesh)),
-                    self._V.element.interpolation_points()
-                )
-            f = fem.Function(self._V)
-            f.interpolate(expr)
-            return f
+            domain_coeff = self._user_input(ufl.SpatialCoordinate(self._mesh))
+            ## Edge case: If the user-input callable actually returns a constant coefficient, convert it to fem.Constant
+            if np.asarray(domain_coeff).ndim == 0:
+                self.constant = True
+                return fem.Constant(self._mesh, PETSc.ScalarType(domain_coeff))
+            ## If the user-input callable really returns a spatially-varying coefficient, pack it into a fem.Expression before interpolation
+            else:
+                self.constant = False
+                expr = fem.Expression(domain_coeff, self._V.element.interpolation_points())
+                f = fem.Function(self._V)
+                f.interpolate(expr)
+                return f
 
         raise TypeError(
             f"Unsupported coefficient parameter of type "
