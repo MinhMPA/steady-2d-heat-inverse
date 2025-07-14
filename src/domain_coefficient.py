@@ -1,7 +1,15 @@
+# type imports
 from abc import ABC, abstractmethod
 from typing import Callable, Union
 
+# container imports
+import pandas as pd
+
+# numerical imports
 import numpy as np
+from scipy.interpolate import CloughTocher2DInterpolator
+
+# pde imports
 from petsc4py import PETSc
 import ufl
 
@@ -11,7 +19,10 @@ from dolfinx import mesh, fem
 # local imports
 from plotting_utils import plot_scalar_mesh
 
-UserInput    = Union[Union[int, float], fem.Constant, fem.Expression, Callable[[np.ndarray], np.ndarray]]
+ScalarLike     = Union[int, float]
+CallableLike   = Callable[[np.ndarray], np.ndarray]
+TableLike      = Union[np.ndarray, pd.DataFrame]
+UserInput    = Union[ScalarLike, fem.Constant, fem.Expression, CallableLike, TableLike]
 
 class BaseDomainCoefficient(ABC):
     """
@@ -35,13 +46,12 @@ class BaseDomainCoefficient(ABC):
             - scalar (int, float) or fem.Constant
             - callable or fem.Expression
 
-         Returns
+        Returns
         -------
         The coefficient defined on the domain. Either of the following types, depending on input:
             - fem.Constant for scalar and fem.Constant inputs
             - fem.Function for callable or fem.Expression inputs, interpolated onto the mesh
         """
-
         # Handle scalar (int,float) or fem.Constant inputs
         if isinstance(self._user_input, fem.Constant):
             self.constant = True
@@ -69,6 +79,19 @@ class BaseDomainCoefficient(ABC):
                 f = fem.Function(self._V)
                 f.interpolate(expr)
                 return f
+        if isinstance(self._user_input, (np.ndarray, pd.DataFrame)):
+            self.constant = False
+            pts, vals = self._parse_tab(self._user_input)
+            # piece-wise cubic interpolation, rescale to unit square before interpolating
+            # values outside of the convex hull of the points will be set to the spatial mean
+            interp = CloughTocher2DInterpolator(pts, vals, fill_value=vals.mean(), rescale=True)
+            f = fem.Function(self._V)
+            def interpolate_func(x):
+                points = np.column_stack([x[0], x[1]])
+                values = interp(points)
+                return values
+            f.interpolate(interpolate_func)
+            return f
 
         raise TypeError(
             f"Unsupported coefficient parameter of type "
@@ -82,6 +105,41 @@ class BaseDomainCoefficient(ABC):
         """
 
         ...
+
+    def _parse_tab(self, tab: TableLike):
+        """
+        Parse tabulated input `np.ndarray` or `pd.DataFrame`.
+
+        Parameters
+        ----------
+        Either of the following types are supported:
+            - `np.ndarray` ([x,y],value).
+            - `pd.DataFrame` (x|y|value), case-insensitive.
+
+        Returns
+        -------
+        pts (N,2) ndarray of points
+        vals (N,) ndarray of values
+        """
+        if isinstance(tab, pd.DataFrame):
+            cols = [c.lower() for c in tab.columns]
+            try:
+                pts = np.column_stac([tab[cols.index("x")].values,
+                                      tab[cols.index("y")].values])
+                vals = tab[cols.index("value")].values
+            except ValueError:
+                raise ValueError("pd.DataFrame format must be (x|y|value).")
+        elif isinstance(tab, np.ndarray):
+            if tab.shape[-1] != 3:
+                raise ValueError("np.ndarray format must be (N,[x,y,value]).")
+            pts = tab[:,:2]
+            vals = tab[:,-1]
+        else:
+            raise TypeError(
+                f"Unsupported tabulated input type: {type(tab).__name__}. "
+                "Expected np.ndarray or pd.DataFrame."
+            )
+        return pts, vals
 
 class ThermalConductivity(BaseDomainCoefficient):
     """

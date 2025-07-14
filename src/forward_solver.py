@@ -1,6 +1,13 @@
+# type imports
 from typing import Union, Callable
+
+# numerical imports
 import numpy as np
+
+# mpi imports
 from mpi4py import MPI
+
+# pde imports
 from petsc4py import PETSc
 import ufl
 
