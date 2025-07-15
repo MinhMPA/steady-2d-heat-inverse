@@ -1,13 +1,13 @@
 # type imports
 from abc import ABC, abstractmethod
-from typing import Callable, Union
+from typing import Literal, Callable, Union
 
 # container imports
 import pandas as pd
 
 # numerical imports
 import numpy as np
-from scipy.interpolate import CloughTocher2DInterpolator
+from scipy.interpolate import RBFInterpolator, CloughTocher2DInterpolator
 
 # pde imports
 from petsc4py import PETSc
@@ -22,7 +22,7 @@ from plotting_utils import plot_scalar_mesh
 ScalarLike     = Union[int, float]
 CallableLike   = Callable[[np.ndarray], np.ndarray]
 TableLike      = Union[np.ndarray, pd.DataFrame]
-UserInput    = Union[ScalarLike, fem.Constant, fem.Expression, CallableLike, TableLike]
+UserInput      = Union[ScalarLike, fem.Constant, fem.Expression, CallableLike, TableLike]
 
 class BaseDomainCoefficient(ABC):
     """
@@ -30,11 +30,17 @@ class BaseDomainCoefficient(ABC):
     Derived class *must* implement the `_build` method, which populates `self.function`.
     """
 
-    def __init__(self, user_input: UserInput, mesh: mesh.Mesh, V: fem.FunctionSpace):
+    def __init__(self,
+                 user_input: UserInput,
+                 mesh: mesh.Mesh,
+                 V: fem.FunctionSpace,
+                 *,
+                 tab_interpolator: Literal["rbf","ct"] = "ct"):
         self._user_input = user_input
         self._mesh = mesh
         self._V = V
         self.function = self._build()
+        self._tab_interpolator = tab_interpolator
 
     def _coefficient_from_user_input(self) -> Union[fem.Constant, fem.Function]:
         """
@@ -82,9 +88,14 @@ class BaseDomainCoefficient(ABC):
         if isinstance(self._user_input, (np.ndarray, pd.DataFrame)):
             self.constant = False
             pts, vals = self._parse_tab(self._user_input)
-            # piece-wise cubic interpolation, rescale to unit square before interpolating
-            # values outside of the convex hull of the points will be set to the spatial mean
-            interp = CloughTocher2DInterpolator(pts, vals, fill_value=vals.mean(), rescale=True)
+            ## piece-wise cubic interpolation, rescale to unit square before interpolating
+            ## no extrapolation, values outside of the point convex hull can be specified with `fill_value`
+            ## only works in 2D, but memory ~ O(N log N)
+            # interp = CloughTocher2DInterpolator(pts, vals, fill_value=vals.mean(), rescale=True)
+            ## radial basis function interpolation, cubic kernel with degree-1 polynomial added
+            ## more hyperparameters but offers smoothing at sampled data points and extrapolation
+            ## works in any dimension, but memory ~ O(N^2), can adjust neighbors to reduce memory usage
+            interp = RBFInterpolator(pts, vals, kernel='cubic', neighbors=None, smoothing=0.0, degree=1)
             f = fem.Function(self._V)
             def interpolate_func(x):
                 points = np.column_stack([x[0], x[1]])
