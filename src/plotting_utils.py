@@ -2,7 +2,7 @@ import numpy as np
 from mpi4py import MPI
 import pyvista as pv
 from dolfinx.plot import vtk_mesh
-from typing import Sequence
+from typing import Any, Sequence
 from numpy.typing import ArrayLike
 
 def plot_scalar_mesh(mesh, data: ArrayLike, name: str,
@@ -10,6 +10,7 @@ def plot_scalar_mesh(mesh, data: ArrayLike, name: str,
                  n_labels: int = 5,
                  user_scalar_bar: dict | None = None,
                  return_plotter: bool = False,
+                 **mesh_kwargs: Any,
                 ):
     """
     Plot a scalar field on a Dolfinx mesh using PyVista.
@@ -35,7 +36,7 @@ def plot_scalar_mesh(mesh, data: ArrayLike, name: str,
     dr = np.max(data) - np.min(data)
     digits = max(0, int(np.ceil(-np.log10(dr)))) if dr > 0 else 0
     if digits > 3:
-        fmt = f"%.{digits}e"
+        fmt = f"%.1e"
     else:
         fmt = f"%.{digits}f"
 
@@ -53,7 +54,7 @@ def plot_scalar_mesh(mesh, data: ArrayLike, name: str,
 
     pl = pv.Plotter()
     pl.add_mesh(grid, scalars=name, cmap=cmap, show_edges=show_edges,
-                scalar_bar_args=scalar_bar)
+                scalar_bar_args=scalar_bar,**mesh_kwargs)
     pl.show()
     if return_plotter:
         return grid, pl
