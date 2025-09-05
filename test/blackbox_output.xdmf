@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<!DOCTYPE Xdmf SYSTEM "Xdmf.dtd" []>
+<Xdmf Version="3.0" xmlns:xi="https://www.w3.org/2001/XInclude">
+  <Domain>
+    <Grid Name="mesh" GridType="Uniform">
+      <Topology TopologyType="Quadrilateral" NumberOfElements="16384" NodesPerElement="4">
+        <DataItem Dimensions="16384 4" NumberType="Int" Format="HDF">blackbox_output.h5:/Mesh/mesh/topology</DataItem>
+      </Topology>
+      <Geometry GeometryType="XY">
+        <DataItem Dimensions="16641 2" Format="HDF">blackbox_output.h5:/Mesh/mesh/geometry</DataItem>
+      </Geometry>
+    </Grid>
+    <Grid Name="Temperature" GridType="Collection" CollectionType="Temporal">
+      <Grid Name="Temperature" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0" />
+        <Attribute Name="Temperature" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="16641 1" Format="HDF">blackbox_output.h5:/Function/Temperature/0</DataItem>
+        </Attribute>
+      </Grid>
+    </Grid>
+    <Grid Name="ObservedTemperature" GridType="Collection" CollectionType="Temporal">
+      <Grid Name="ObservedTemperature" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0" />
+        <Attribute Name="ObservedTemperature" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="16641 1" Format="HDF">blackbox_output.h5:/Function/ObservedTemperature/0</DataItem>
+        </Attribute>
+      </Grid>
+    </Grid>
+    <Grid Name="ThermalConductivity" GridType="Collection" CollectionType="Temporal">
+      <Grid Name="ThermalConductivity" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0" />
+        <Attribute Name="ThermalConductivity" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="16641 1" Format="HDF">blackbox_output.h5:/Function/ThermalConductivity/0</DataItem>
+        </Attribute>
+      </Grid>
+    </Grid>
+    <Grid Name="HeatSource" GridType="Collection" CollectionType="Temporal">
+      <Grid Name="HeatSource" GridType="Uniform">
+        <xi:include xpointer="xpointer(/Xdmf/Domain/Grid[@GridType='Uniform'][1]/*[self::Topology or self::Geometry])" />
+        <Time Value="0" />
+        <Attribute Name="HeatSource" AttributeType="Scalar" Center="Node">
+          <DataItem Dimensions="16641 1" Format="HDF">blackbox_output.h5:/Function/HeatSource/0</DataItem>
+        </Attribute>
+      </Grid>
+    </Grid>
+  </Domain>
+</Xdmf>
