@@ -10,3 +10,15 @@ conda env create -n steady-2d-heat-inverse -f environment.yml
 conda activate steady-2d-heat-inverse
 pip install -e .
 ```
+
+## Usage
+
+- The [notebooks/ForwardSolve.ipynb](notebooks/ForwardSolve.ipynb) notebook demonstrates how to solve the forward problem.
+- The [notebooks/InverseSolve.ipynb](notebooks/ForwardSolve.ipynb) notebook demonstrates how to solve the inverse problem.
+
+## References
+
+- [1] Hans P. Langtangen, ["Approximation of Functions"](https://hplgit.github.io/num-methods-for-PDEs/doc/pub/approx/sphinx/index.html)
+- [2] Andrew M. Bradley, ["PDE-constrained optimization and the adjoint method"](https://cs.stanford.edu/~ambrad/adjoint_tutorial.pdf)
+- [3] Jørgen S. Dokken, ["The FEniCS tutorial"](https://jsdokken.com/dolfinx-tutorial/)
+
