@@ -18,7 +18,8 @@ pip install -e .
 
 ## References
 
-- [1] Hans P. Langtangen, ["Approximation of Functions"](https://hplgit.github.io/num-methods-for-PDEs/doc/pub/approx/sphinx/index.html)
-- [2] Andrew M. Bradley, ["PDE-constrained optimization and the adjoint method"](https://cs.stanford.edu/~ambrad/adjoint_tutorial.pdf)
-- [3] Jørgen S. Dokken, ["The FEniCS tutorial"](https://jsdokken.com/dolfinx-tutorial/)
+- [1] Hans P. Langtangen and Kent-Andre Mardal, ["Introduction to Numerical Methods for Variational Problems"](https://hplgit.github.io/fem-book/doc/pub/book/pdf/fem-book-4print-2up.pdf)
+- [2] Hans P. Langtangen and Anders Logg (adapted by Jørgen S. Dokken) ["The FEniCS tutorial"](https://jsdokken.com/dolfinx-tutorial/)
+- [3] Hans P. Langtangen, ["Approximation of Functions"](https://hplgit.github.io/num-methods-for-PDEs/doc/pub/approx/pdf/approx-4print.pdf)
+- [4] Andrew M. Bradley, ["PDE-constrained optimization and the adjoint method"](https://cs.stanford.edu/~ambrad/adjoint_tutorial.pdf)
 
