@@ -79,9 +79,9 @@ class AdjointSteadyHeatSolver2D(SteadyHeatForwardSolver2D):
 
         # Define the weak form of the adjoint equation.
         u = ufl.TrialFunction(self.V)
-        w = ufl.TestFunction(self.V)
-        self.a = ufl.inner(self.h.function * ufl.grad(u), ufl.grad(w)) * ufl.dx
-        self.L = (1./self.sigma2) * ufl.inner((self.T - self.T_obs), w) * ufl.dx
+        v = ufl.TestFunction(self.V)
+        self.a = ufl.inner(self.h.function * ufl.grad(u), ufl.grad(v)) * ufl.dx
+        self.L = (1./self.sigma2) * ufl.inner((self.T - self.T_obs), v) * ufl.dx
 
         # Specify options for the PETSc KSP linear system solver.
         ## Inherit PETSc options from forward solver if none provided
@@ -107,7 +107,7 @@ class AdjointSteadyHeatSolver2D(SteadyHeatForwardSolver2D):
         self.problem.solve()
         return self.lambda_L
 
-    def assemble_gradient(self) -> float:
+    def assemble_gradient(self) -> PETSc.Vec:
         r"""
         Assemble the gradient dJ/dh.
 
@@ -118,15 +118,14 @@ class AdjointSteadyHeatSolver2D(SteadyHeatForwardSolver2D):
         # Total derivative of the objective function J with respect to h:
         ## dJ/dh = (\lambda^T)\cdot g[T(h), h] + \partial J / partial h,
         ##       = -\nablaT\cdot\nabla\lambda + \alpha\lapl h.
-        w = ufl.TestFunction(self.V)
+        v = ufl.TestFunction(self.V)
         grad_expr = (
-                - ufl.inner(ufl.grad(self.T), ufl.grad(self.lambda_L))*w \
-                + self.alpha * ufl.inner(ufl.grad(self.h.function), ufl.grad(w))
+                - ufl.inner(ufl.grad(self.T), ufl.grad(self.lambda_L))*v \
+                + self.alpha * ufl.inner(ufl.grad(self.h.function), ufl.grad(v))
             ) * ufl.dx
         grad_form = fem.form(grad_expr)
         grad_vec = fem.petsc.assemble_vector(grad_form)
         grad_vec.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-        grad_vec.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
         return grad_vec
 
     def update_gradient(self) -> None:
