@@ -136,7 +136,7 @@ class SteadyHeatForwardSolver2D:
         # Generate noise on rank 0 and broadcast noise to all ranks
         if MPI.COMM_WORLD.rank == 0:
             rng = np.random.default_rng(seed)
-            noise = rng.normal(loc=0.0, scale=sigma, size=n_local_dofs)
+            noise = rng.normal(loc=mu, scale=sigma, size=n_local_dofs)
         else:
             noise = np.empty(n_local_dofs, dtype=float)
         MPI.COMM_WORLD.Bcast(noise, root=0)
