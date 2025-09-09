@@ -173,7 +173,8 @@ class SteadyHeatForwardSolver2D:
         with XDMFFile(self.mesh.comm, filename, "w") as xdmf:
             xdmf.write_mesh(self.mesh)
             xdmf.write_function(self.T)
-            xdmf.write_function(self.T_obs)
+            if hasattr(self, "T_obs"):
+                xdmf.write_function(self.T_obs)
             xdmf.write_function(wrapped_hfunc)
             xdmf.write_function(wrapped_qfunc)
 
