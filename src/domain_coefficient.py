@@ -135,7 +135,7 @@ class BaseDomainCoefficient(ABC):
         if isinstance(tab, pd.DataFrame):
             cols = [c.lower() for c in tab.columns]
             try:
-                pts = np.column_stac([tab[cols.index("x")].values,
+                pts = np.column_stack([tab[cols.index("x")].values,
                                       tab[cols.index("y")].values])
                 vals = tab[cols.index("value")].values
             except ValueError:
