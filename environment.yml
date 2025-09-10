@@ -11,6 +11,8 @@ dependencies:
   - fenics-basix
   - fenics-ufl
   - fenics-dolfinx
-  - pyvista
+  - pyvista<=0.45.3
+  - h5py
+  - jupyterlab
   - pip:
       - -e .
