@@ -5,6 +5,8 @@
 
 ## Installation
 
+With `conda`/`mamba` and `pip`:
+
 ```
 conda env create -n steady-2d-heat-inverse -f environment.yml
 conda activate steady-2d-heat-inverse
