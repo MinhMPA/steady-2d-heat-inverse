@@ -22,11 +22,11 @@ from domain_coefficient import ThermalConductivity, HeatSource
 from plotting_utils import plot_scalar_mesh
 
 class SteadyHeatForwardSolver2D:
-    """
+    r"""
     Forward solver for the steady-state Poisson heat equation on a 2D unit square:
-        \del\cdot(h\del T) = -q .
+        \nabla\cdot(h\nabla T) = -q .
     Dirichlet boundary condition on the bottom wall: T(y=0)=300K.
-    Neumann boundary conditions on the other three insulated walls: \del T\cdot\hat{n}=0.
+    Neumann boundary conditions on the other three insulated walls: \nabla T\cdot\hat{n}=0.
     """
     def __init__(self,
                  nmesh: int = 64,
@@ -115,8 +115,8 @@ class SteadyHeatForwardSolver2D:
 
     # Supporting method to inject a Gaussian noise field into the solution.
     def add_noise(self, mu: float = 0.0, sigma: float = 1.0, seed: int | None = None) -> fem.Function:
-        """
-        Add uncorrelated Gaussian noise N(mu, sigma^2) to the solution T(x,y).
+        r"""
+        Add uncorrelated Gaussian noise N(\mu, \sigma^2) to the solution T(x,y).
         Default noise distribution is a standard normal N(0,1).
 
         Parameters
