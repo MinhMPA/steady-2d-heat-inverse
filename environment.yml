@@ -4,6 +4,7 @@ channels:
 dependencies:
   - python>=3.11
   - numpy
+  - scipy
   - pandas
   - mpi4py
   - petsc4py
