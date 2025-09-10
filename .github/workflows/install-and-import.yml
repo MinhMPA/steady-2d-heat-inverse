@@ -49,7 +49,7 @@ jobs:
           python -V
           which python
           pip install -e .
-python -c "import forward_solver; print('import forward_solver: OK')"
-python -c "import adjoint_solver; print('import adjoint_solver: OK')"
-python -c "import tao_solver; print('import tao_solver: OK')"
-echo "All modules import successfully."
+          python -c "import forward_solver; print('import forward_solver: OK')"
+          python -c "import adjoint_solver; print('import adjoint_solver: OK')"
+          python -c "import tao_solver; print('import tao_solver: OK')"
+          echo "All modules import successfully."
