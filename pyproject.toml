@@ -1,0 +1,37 @@
+[project]
+name = "steady-2d-heat-inverse"
+version = "0.1"
+description = "2D steady heat inverse problem with discrete adjoint and PETSc TAO optimization"
+requires-python = ">=3.11"
+
+# Minimal dependencies, beyond those listed in environment.yaml
+dependencies = []
+
+# Optional dependencies for development and testing
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-xdist>=3.5",
+]
+
+# For command-line scripts (if any).
+# [project.scripts]
+# steady-2d-heat = "your_module:main"
+
+# Build system requirements.
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# .py files that should be installed as top-level modules.
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = [
+  "forward_solver",
+  "adjoint_solver",
+  "tao_solver",
+  "domain_coefficient",
+  "plotting_utils"
+]
