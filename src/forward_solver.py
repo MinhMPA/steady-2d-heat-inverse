@@ -90,7 +90,7 @@ class SteadyHeatForwardSolver2D:
         default_opts = {
             'ksp_type': 'cg',
             'pc_type': 'hypre',
-            'ksp_rtol': 1e-8
+            'ksp_rtol': 1e-10
         }
         self.petsc_opts = default_opts | (petsc_opts or {})
 
