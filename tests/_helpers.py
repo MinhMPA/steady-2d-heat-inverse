@@ -7,8 +7,7 @@ import ufl
 from dolfinx import fem
 
 def eval_cost(forward, T_obs, sigma: float, alpha: float) -> float:
-    mesh = forward.mesh
-    dx = ufl.Measure("dx", domain=mesh)
+    dx = ufl.Measure("dx", domain=forward.mesh)
     T = forward.T
     h = forward.h.function
     delta_T = T - T_obs
