@@ -13,6 +13,7 @@ from forward_solver import SteadyHeatForwardSolver2D
 from adjoint_solver import AdjointSteadyHeatSolver2D
 from tests._helpers import eval_cost, rand_direction
 
+n_mesh=16
 T_bottom=300.0
 noise_sigma=1.0
 reg_alpha=1e-6
@@ -35,13 +36,13 @@ def test_grad_finitediff():
         return 2.0 + 3.0*x[0]**2 + x[0]/(4.0 + 3.0*x[1]**2)
 
     # True forward model
-    fwd_truth = SteadyHeatForwardSolver2D(nmesh=16, mesh_type="quadrilateral",
+    fwd_truth = SteadyHeatForwardSolver2D(nmesh=n_mesh, mesh_type="quadrilateral",
                                           h=h_true, q=1.0, DBC_value=T_bottom)
     # True solution
     fwd_truth.solve()
 
     # Initial forward model
-    fwd = SteadyHeatForwardSolver2D(nmesh=16, mesh_type="quadrilateral",
+    fwd = SteadyHeatForwardSolver2D(nmesh=n_mesh, mesh_type="quadrilateral",
                                     h=h_init, q=1.0, DBC_value=T_bottom)
     # Initial solution
     fwd.solve()
