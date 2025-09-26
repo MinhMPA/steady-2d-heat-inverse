@@ -23,7 +23,7 @@ step_size=1e-6
 
 rtol, atol = 1e-5, 1e-8
 
-def test_adjoint_gradient_matches_fd():
+def test_grad_finitediff():
     """
     Compare adjoint gradient to finite-difference gradient
     """
@@ -36,11 +36,9 @@ def test_adjoint_gradient_matches_fd():
 
     # True forward model
     fwd_truth = SteadyHeatForwardSolver2D(nmesh=16, mesh_type="quadrilateral",
+                                          h=h_true, q=1.0, DBC_value=T_bottom)
     # True solution
     fwd_truth.solve()
-    # Observation = True solution (noise-free for this test)
-    T_obs = fem.Function(fwd.V, name="T_obs")
-    T_obs.x.array[:] = fwd_truth.T.x.array
 
     # Initial forward model
     fwd = SteadyHeatForwardSolver2D(nmesh=16, mesh_type="quadrilateral",
@@ -48,12 +46,15 @@ def test_adjoint_gradient_matches_fd():
     # Initial solution
     fwd.solve()
 
+    # Observation = True solution (noise-free for this test)
+    T_obs = fem.Function(fwd.V, name="T_obs")
+    T_obs.x.array[:] = fwd_truth.T.x.array
+
     # Adjoint gradient
     adj = AdjointSteadyHeatSolver2D(fwd, T_obs, sigma=noise_sigma, alpha=reg_alpha, DBC_value=T_bottom)
     adj.solve()
     adj.update_gradient()
     g = adj.grad  # PETSc Vec representing dJ/dh in your chosen Riesz map
-    adj_grad  = g.dot(delta_h.x.petsc_vec)
 
     # Finite-difference gradient
     ## Pick random test direction
@@ -63,11 +64,15 @@ def test_adjoint_gradient_matches_fd():
     ## Update h0 -> h0 + step_size*delta_h
     fwd.h.function.x.petsc_vec.axpy(step_size, delta_h.x.petsc_vec)
     fwd.h.function.x.petsc_vec.ghostUpdate(addv=PETSc.InsertMode.INSERT,
+                                           mode=PETSc.ScatterMode.FORWARD)
     ## Solve
     fwd.solve()
     ## Evaluate new objective
     J_plus = eval_cost(fwd, T_obs, noise_sigma, reg_alpha)
+
+    # Assemble gradients
     fd_grad   = (J_plus - J0) / (step_size)
+    adj_grad  = g.dot(delta_h.x.petsc_vec)
 
     # Error between adjoint and finite-difference gradients
     abs_err = abs(adj_grad - fd_grad)
