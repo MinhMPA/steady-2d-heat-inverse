@@ -1,4 +1,4 @@
-# tests/test_grad_fd.py
+# tests/test_grad_finitediff.py
 import pytest
 pytestmark = [pytest.mark.gradcheck]
 # numerical import
