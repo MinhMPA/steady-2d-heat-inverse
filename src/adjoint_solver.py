@@ -89,7 +89,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
 
         # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs.
         self.lambda_L = fem.Function(self.V, name="AdjointState")
-        self.problem = fem.petsc.LinearProblem(
+        self.problem = LinearProblem(
             self.a, self.L,
             u=self.lambda_L,
             bcs=self.bcs,
