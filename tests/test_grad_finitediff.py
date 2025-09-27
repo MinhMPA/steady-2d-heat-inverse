@@ -11,7 +11,7 @@ from dolfinx import fem
 # local imports
 from forward_solver import SteadyHeatForwardSolver2D
 from adjoint_solver import AdjointSteadyHeatSolver2D
-from tests._helpers import eval_cost, rand_direction
+from tests._helpers import eval_cost, pick_random_test_direction
 
 n_mesh=16
 T_bottom=300.0
@@ -59,7 +59,7 @@ def test_grad_finitediff():
 
     # Finite-difference gradient
     ## Pick random test direction
-    delta_h = rand_direction(fwd.V, seed=rnd_seed, scale=rnd_scale)
+    delta_h = pick_random_test_direction(fwd.V, seed=rnd_seed, scale=rnd_scale)
     ## Evaluate baseline objective at h0
     J0 = eval_cost(fwd, T_obs, noise_sigma, reg_alpha)
     ## Update h0 -> h0 + step_size*delta_h
