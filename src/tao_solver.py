@@ -15,10 +15,10 @@ import ufl
 from dolfinx import fem
 
 # local imports
-from forward_solver import SteadyHeatForwardSolver2D
-from adjoint_solver import AdjointSteadyHeatSolver2D
+from forward_solver import SteadyHeat2DForwardSolver
+from adjoint_solver import SteadyHeat2DAdjointSolver
 
-class TAOSolver2D:
+class SteadyHeat2DTAOSolver:
     r"""
     Wrapper for PETSc.TAO quadratic solver to minimize the objective function:
         J[T(h), h] = 0.5 * [ \int_\Omega [T(h) - T_obs]^2/\sigma^2 + \alpha * \int_\Omega (\nabla h)^2 ],
@@ -26,8 +26,8 @@ class TAOSolver2D:
     """
 
     def __init__(self,
-                 forward: SteadyHeatForwardSolver2D,
-                 adjoint: AdjointSteadyHeatSolver2D,
+                 forward: SteadyHeat2DForwardSolver,
+                 adjoint: SteadyHeat2DAdjointSolver,
                  *,
                  h_min: float | None = 1e-16,
                  h_max: float | None = None,
@@ -45,8 +45,8 @@ class TAOSolver2D:
         """
         Parameters
         ----------
-        forward          : forward solver, SteadyHeatForwardSolver2D instance, must expose h, T, and solve()
-        adjoint          : adjoint solver, AdjointSteadyHeatSolver2D instance, must expose alpha, sigma, and solve(), assemble_gradient()
+        forward          : forward solver, SteadyHeat2DForwardSolver instance, must expose h, T, and solve()
+        adjoint          : adjoint solver, SteadyHeat2DAdjointSolver instance, must expose alpha, sigma, and solve(), assemble_gradient()
         h_min            : positive lower bound for h
         h_max            : positive upper bound for h
         tao_type         : TAO solver type

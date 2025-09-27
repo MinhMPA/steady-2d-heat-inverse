@@ -13,9 +13,9 @@ from dolfinx import fem, mesh
 from dolfinx.fem.petsc import LinearProblem
 
 # local imports
-from forward_solver import SteadyHeatForwardSolver2D
+from forward_solver import SteadyHeat2DForwardSolver
 
-class AdjointSteadyHeatSolver2D(SteadyHeatForwardSolver2D):
+class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
     r"""
     Adjoint solver for the adjoint equation of the steady-state Poisson heat equation on a 2D unit square:
         \nabla\cdot(h \nabla\lambda_L) = - (\partial J / \partial T) = - \int_\Omega [T(h) - T_obs]/\sigma^2,
@@ -32,7 +32,7 @@ class AdjointSteadyHeatSolver2D(SteadyHeatForwardSolver2D):
     Neumann boundary conditions on the other three insulated walls: \nabla\lambda_L\cdot\hat{n}=0.
     """
     def __init__(self,
-                 forward_solver: SteadyHeatForwardSolver2D,
+                 forward_solver: SteadyHeat2DForwardSolver,
                  T_obs: fem.Function or array-like,
                  sigma: float = 1.0,
                  alpha: float = 0.0,

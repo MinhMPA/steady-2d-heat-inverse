@@ -21,7 +21,7 @@ from dolfinx.io import XDMFFile
 from domain_coefficient import ThermalConductivity, HeatSource
 from plotting_utils import plot_scalar_mesh
 
-class SteadyHeatForwardSolver2D:
+class SteadyHeat2DForwardSolver:
     r"""
     Forward solver for the steady-state Poisson heat equation on a 2D unit square:
         \nabla\cdot(h\nabla T) = -q .
