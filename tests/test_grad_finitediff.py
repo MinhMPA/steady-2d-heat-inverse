@@ -26,7 +26,10 @@ rtol, atol = 1e-5, 1e-8
 
 def test_grad_finitediff():
     """
-    Compare adjoint and finite-difference directional derivatives DJ[h0,\delta h].
+    Compare adjoint and finite-difference directional derivatives:
+        DJ[h0,\delta h]=dJ/dh\cdot\delta h.
+    The finite-difference directional derivative is the forward difference:
+        DJ_fd[h0,\delta h] = (J(h0 + step_size*\delta h) - J(h0)) / step_size.
     """
     # True h(x,y) used to generate observations
     def h_true(x):
