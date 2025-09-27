@@ -26,13 +26,13 @@ rtol, atol = 1e-5, 1e-8
 
 def test_grad_finitediff():
     """
-    Compare adjoint gradient to finite-difference gradient
+    Compare adjoint and finite-difference directional derivatives DJ[h0,\delta h].
     """
     # True h(x,y) used to generate observations
     def h_true(x):
         return 1.0 + 6.0*x[0]**2 + x[0]/(1.0 + 2.0*x[1]**2)
     # Initial guess for h(x,y) used in optimization
-    def h_init(x):
+    def h0(x):
         return 2.0 + 3.0*x[0]**2 + x[0]/(4.0 + 3.0*x[1]**2)
 
     # True forward model
@@ -43,7 +43,7 @@ def test_grad_finitediff():
 
     # Initial forward model
     fwd = SteadyHeatForwardSolver2D(nmesh=n_mesh, mesh_type="quadrilateral",
-                                    h=h_init, q=1.0, DBC_value=T_bottom)
+                                    h=h0, q=1.0, DBC_value=T_bottom)
     # Initial solution
     fwd.solve()
 
