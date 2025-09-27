@@ -58,7 +58,6 @@ def test_grad_finitediff():
     adj = AdjointSteadyHeatSolver2D(fwd, T_obs, sigma=noise_sigma, alpha=reg_alpha, DBC_value=T_bottom)
     adj.solve()
     adj.update_gradient()
-    g = adj.grad  # PETSc Vec representing dJ/dh in your chosen Riesz map
 
     # Finite-difference gradient
     ## Pick random test direction
@@ -76,7 +75,7 @@ def test_grad_finitediff():
 
     # Assemble directional derivatives
     fd_dderiv   = (J_plus - J0) / (step_size)
-    adj_dderiv  = g.dot(delta_h.x.petsc_vec)
+    adj_dderiv  = adj.grad.dot(delta_h.x.petsc_vec)
 
     # Error between adjoint and finite-difference gradients
     abs_err = abs(adj_dderiv - fd_dderiv)
