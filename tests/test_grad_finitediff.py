@@ -74,11 +74,11 @@ def test_grad_finitediff():
     ## Evaluate new objective
     J_plus = eval_cost(fwd, T_obs, noise_sigma, reg_alpha)
 
-    # Assemble gradients
-    fd_grad   = (J_plus - J0) / (step_size)
-    adj_grad  = g.dot(delta_h.x.petsc_vec)
+    # Assemble directional derivatives
+    fd_dderiv   = (J_plus - J0) / (step_size)
+    adj_dderiv  = g.dot(delta_h.x.petsc_vec)
 
     # Error between adjoint and finite-difference gradients
-    abs_err = abs(adj_grad - fd_grad)
-    rel_err = abs_err / abs(fd_grad)
-    assert abs_err <= atol + rtol*abs(fd_grad), f"adj_grad={adj_grad}, fd_grad={fd_grad}, abs_err={abs_err}, rel_err={rel_err}."
+    abs_err = abs(adj_dderiv - fd_dderiv)
+    rel_err = abs_err / abs(fd_dderiv)
+    assert abs_err <= atol + rtol*abs(fd_dderiv), f"adj_dderiv={adj_dderiv}, fd_dderiv={fd_dderiv}, abs_err={abs_err}, rel_err={rel_err}."
