@@ -35,7 +35,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
 
     def __init__(
         self,
-        forward_solver: SteadyHeat2DForwardSolver,
+        forward: SteadyHeat2DForwardSolver,
         T_obs: fem.Function or array - like,
         sigma: float = 1.0,
         alpha: float = 0.0,
@@ -45,7 +45,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         """
         Parameters
         ----------
-        forward_solver  : forward solver instance, providing mesh, V, bottom_dofs, h, q, T.
+        forward         : forward solver instance, providing mesh, V, bottom_dofs, h, q, T.
         T_obs           : the observed/measured temperature.
         sigma           : std. of the sensor (Gaussian) noise.
         DBC_value       : Dirichlet BC for \lambda_L at the bottom, i.e. \lambda_L(y=0)=\lambda_{L,0}.
@@ -54,16 +54,16 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         # Copy forward solver attributes:
         ## mesh, function space, botom_dofs;
         self.mesh, self.V, self.bottom_dofs = (
-            forward_solver.mesh,
-            forward_solver.V,
-            forward_solver.bottom_dofs,
+            forward.mesh,
+            forward.V,
+            forward.bottom_dofs,
         )
         ## thermal conductivity and heat source;
-        self.h, self.q = forward_solver.h, forward_solver.q
+        self.h, self.q = forward.h, forward.q
         ## temperature;
-        self.T = forward_solver.T
+        self.T = forward.T
         ## PETSc options.
-        self.petsc_opts = forward_solver.petsc_opts
+        self.petsc_opts = forward.petsc_opts
         # Read observed temperature, noise level and ampltidue of regularization term.
         self.T_obs = fem.Function(self.V, name="ObservedTemperature")
         if isinstance(T_obs, fem.Function):
