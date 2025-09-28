@@ -19,10 +19,11 @@ from dolfinx import mesh, fem
 # local imports
 from plotting_utils import plot_scalar_mesh
 
-ScalarLike     = Union[int, float]
-CallableLike   = Callable[[np.ndarray], np.ndarray]
-TableLike      = Union[np.ndarray, pd.DataFrame]
-UserInput      = Union[ScalarLike, fem.Constant, fem.Expression, CallableLike, TableLike]
+ScalarLike = Union[int, float]
+CallableLike = Callable[[np.ndarray], np.ndarray]
+TableLike = Union[np.ndarray, pd.DataFrame]
+UserInput = Union[ScalarLike, fem.Constant, fem.Expression, CallableLike, TableLike]
+
 
 class BaseDomainCoefficient(ABC):
     """
@@ -30,12 +31,14 @@ class BaseDomainCoefficient(ABC):
     Derived class *must* implement the `_build` method, which populates `self.function`.
     """
 
-    def __init__(self,
-                 user_input: UserInput,
-                 mesh: mesh.Mesh,
-                 V: fem.FunctionSpace,
-                 *,
-                 tab_interpolator: Literal["rbf","ct"] = "ct"):
+    def __init__(
+        self,
+        user_input: UserInput,
+        mesh: mesh.Mesh,
+        V: fem.FunctionSpace,
+        *,
+        tab_interpolator: Literal["rbf", "ct"] = "ct",
+    ):
         self._user_input = user_input
         self._mesh = mesh
         self._V = V
@@ -81,7 +84,9 @@ class BaseDomainCoefficient(ABC):
             ## If the user-input callable really returns a spatially-varying coefficient, pack it into a fem.Expression before interpolation
             else:
                 self.constant = False
-                expr = fem.Expression(domain_coeff, self._V.element.interpolation_points())
+                expr = fem.Expression(
+                    domain_coeff, self._V.element.interpolation_points()
+                )
                 f = fem.Function(self._V)
                 f.interpolate(expr)
                 return f
@@ -95,12 +100,16 @@ class BaseDomainCoefficient(ABC):
             ## radial basis function interpolation, cubic kernel with degree-1 polynomial added
             ## more hyperparameters but offers smoothing at sampled data points and extrapolation
             ## works in any dimension, but memory ~ O(N^2), can adjust neighbors to reduce memory usage
-            interp = RBFInterpolator(pts, vals, kernel='cubic', neighbors=None, smoothing=0.0, degree=1)
+            interp = RBFInterpolator(
+                pts, vals, kernel="cubic", neighbors=None, smoothing=0.0, degree=1
+            )
             f = fem.Function(self._V)
+
             def interpolate_func(x):
                 points = np.column_stack([x[0], x[1]])
                 values = interp(points)
                 return values
+
             f.interpolate(interpolate_func)
             return f
 
@@ -135,22 +144,24 @@ class BaseDomainCoefficient(ABC):
         if isinstance(tab, pd.DataFrame):
             cols = [c.lower() for c in tab.columns]
             try:
-                pts = np.column_stack([tab[cols.index("x")].values,
-                                      tab[cols.index("y")].values])
+                pts = np.column_stack(
+                    [tab[cols.index("x")].values, tab[cols.index("y")].values]
+                )
                 vals = tab[cols.index("value")].values
             except ValueError:
                 raise ValueError("pd.DataFrame format must be (x|y|value).")
         elif isinstance(tab, np.ndarray):
             if tab.shape[-1] != 3:
                 raise ValueError("np.ndarray format must be (N,[x,y,value]).")
-            pts = tab[:,:2]
-            vals = tab[:,-1]
+            pts = tab[:, :2]
+            vals = tab[:, -1]
         else:
             raise TypeError(
                 f"Unsupported tabulated input type: {type(tab).__name__}. "
                 "Expected np.ndarray or pd.DataFrame."
             )
         return pts, vals
+
 
 class ThermalConductivity(BaseDomainCoefficient):
     """
@@ -166,11 +177,14 @@ class ThermalConductivity(BaseDomainCoefficient):
         """
         if self.constant:
             vals = self.function.value
-            kwargs.update(user_scalar_bar={'n_labels': 3})
+            kwargs.update(user_scalar_bar={"n_labels": 3})
         else:
-            vals = self.function.x.array[:self._mesh.geometry.x.shape[0]]
-        grid_plot = plot_scalar_mesh(self._mesh, vals, "h(x,y)", cmap="plasma", **kwargs)
+            vals = self.function.x.array[: self._mesh.geometry.x.shape[0]]
+        grid_plot = plot_scalar_mesh(
+            self._mesh, vals, "h(x,y)", cmap="plasma", **kwargs
+        )
         return grid_plot
+
 
 class HeatSource(BaseDomainCoefficient):
     """
@@ -186,8 +200,10 @@ class HeatSource(BaseDomainCoefficient):
         """
         if self.constant:
             vals = self.function.value
-            kwargs.update(user_scalar_bar={'n_labels': 3})
+            kwargs.update(user_scalar_bar={"n_labels": 3})
         else:
-            vals = self.function.x.array[:self._mesh.geometry.x.shape[0]]
-        grid_plot = plot_scalar_mesh(self._mesh, vals, "q(x,y)", cmap="plasma", **kwargs)
+            vals = self.function.x.array[: self._mesh.geometry.x.shape[0]]
+        grid_plot = plot_scalar_mesh(
+            self._mesh, vals, "q(x,y)", cmap="plasma", **kwargs
+        )
         return grid_plot

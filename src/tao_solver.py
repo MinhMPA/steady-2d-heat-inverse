@@ -18,6 +18,7 @@ from dolfinx import fem
 from forward_solver import SteadyHeat2DForwardSolver
 from adjoint_solver import SteadyHeat2DAdjointSolver
 
+
 class SteadyHeat2DTAOSolver:
     r"""
     Wrapper for PETSc.TAO quadratic solver to minimize the objective function:
@@ -25,22 +26,23 @@ class SteadyHeat2DTAOSolver:
     w.r.t. the unknown thermal conductivity h(x,y), subjected to the positivity bound h \geq h_min.
     """
 
-    def __init__(self,
-                 forward: SteadyHeat2DForwardSolver,
-                 adjoint: SteadyHeat2DAdjointSolver,
-                 *,
-                 h_min: float | None = 1e-16,
-                 h_max: float | None = None,
-                 tao_type: str = "blmvm",
-                 ls_algorithm : str = "armijo",
-                 use_logh: bool = True,
-                 gatol: float = 1e-6,
-                 grtol: float = 1e-3,
-                 gttol: float = 1e-3,
-                 mit: int = 1000,
-                 monitor: Callable | None = None,
-                 options: bool = False,
-                 verbose: int = 0,
+    def __init__(
+        self,
+        forward: SteadyHeat2DForwardSolver,
+        adjoint: SteadyHeat2DAdjointSolver,
+        *,
+        h_min: float | None = 1e-16,
+        h_max: float | None = None,
+        tao_type: str = "blmvm",
+        ls_algorithm: str = "armijo",
+        use_logh: bool = True,
+        gatol: float = 1e-6,
+        grtol: float = 1e-3,
+        gttol: float = 1e-3,
+        mit: int = 1000,
+        monitor: Callable | None = None,
+        options: bool = False,
+        verbose: int = 0,
     ):
         """
         Parameters
@@ -69,18 +71,21 @@ class SteadyHeat2DTAOSolver:
             if h_min <= 0.0:
                 raise ValueError("h_min must be positive to define log(h_min).")
             self.m = fem.Function(self.fwd.h.function.function_space)
-            self.m.x.array[:] = np.log(np.clip(self.fwd.h.function.x.array, h_min, h_max))
-            self.m.x.petsc_vec.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                                           mode=PETSc.ScatterMode.FORWARD)
+            self.m.x.array[:] = np.log(
+                np.clip(self.fwd.h.function.x.array, h_min, h_max)
+            )
+            self.m.x.petsc_vec.ghostUpdate(
+                addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD
+            )
             self.X0 = self.m.x.petsc_vec
-            if self.verbose>0:
+            if self.verbose > 0:
                 if MPI.COMM_WORLD.rank == 0:
                     print("Optimize in m=log(h).")
                     with self.X0.localForm() as x_loc:
                         print("Initial guess for m=log(h) =", x_loc.array)
         else:
             self.X0 = self.fwd.h.function.x.petsc_vec
-            if self.verbose>0:
+            if self.verbose > 0:
                 if MPI.COMM_WORLD.rank == 0:
                     print("Optimize in h.")
                     with self.X0.localForm() as x_loc:
@@ -97,7 +102,9 @@ class SteadyHeat2DTAOSolver:
             self._set_tao_bounds_on_h(h_min=h_min, h_max=h_max)
 
         # Set the TAO solver type and tolerances
-        self.tao.setType(tao_type)  # "blmvm" handles simple bounds, only requires gradient
+        self.tao.setType(
+            tao_type
+        )  # "blmvm" handles simple bounds, only requires gradient
         self.tao.setTolerances(gatol=gatol, grtol=grtol, gttol=gttol)
 
         # Register the objective function and gradient callbacks
@@ -116,7 +123,7 @@ class SteadyHeat2DTAOSolver:
         ## Hard-coded line search parameters
         ls = self.tao.getLineSearch()
         ls.setType(ls_algorithm)
-        if self.verbose>=1:
+        if self.verbose >= 1:
             print("Line search algorithm:", ls.getType())
         if options:
             ls.setFromOptions()
@@ -126,7 +133,7 @@ class SteadyHeat2DTAOSolver:
         """
         Set TAO bounds on m=log(h).
         """
-        if self.verbose>0:
+        if self.verbose > 0:
             print("Set bounds on m=log(h).")
         if h_min is not None and h_min <= 0.0:
             raise ValueError("h_min must be > 0 to define log(h_min).")
@@ -149,10 +156,10 @@ class SteadyHeat2DTAOSolver:
         """
         Set TAO bounds on h.
         """
-        if self.verbose>0:
+        if self.verbose > 0:
             print("Set bounds on h.")
         h_lo = h_min if h_min is not None else 0.0
-        h_hi =  PETSc.INFINITY if h_max is None else h_max
+        h_hi = PETSc.INFINITY if h_max is None else h_max
 
         # Copy memory layout of X to get bound vectors with identical layout (including ghosts)
         self.lb = self.X0.duplicate()
@@ -164,15 +171,20 @@ class SteadyHeat2DTAOSolver:
         # Set TAO variable bounds
         self.tao.setVariableBounds(self.lb, self.ub)
 
-
     # Update h in forward and adjoint solvers from tao solver's current solution X
     def _update_h(self, X: PETSc.Vec):
         if self.use_logh:
-            with self.fwd.h.function.x.petsc_vec.localForm() as h_loc, X.localForm() as x_loc:
+            with (
+                self.fwd.h.function.x.petsc_vec.localForm() as h_loc,
+                X.localForm() as x_loc,
+            ):
                 h_loc.array[:] = np.exp(x_loc.array)
             self.fwd.h.function.x.scatter_forward()
         else:
-            with self.fwd.h.function.x.petsc_vec.localForm() as h_loc, X.localForm() as x_loc:
+            with (
+                self.fwd.h.function.x.petsc_vec.localForm() as h_loc,
+                X.localForm() as x_loc,
+            ):
                 h_loc.array[:] = x_loc.array
             self.fwd.h.function.x.scatter_forward()
 
@@ -192,14 +204,13 @@ class SteadyHeat2DTAOSolver:
         J: the objective integrated over the domain.
         """
         # Copy the current X to the forward and adjoint solvers' thermal conductivity h(x,y)
-        X.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                            mode=PETSc.ScatterMode.FORWARD)
+        X.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
 
         self._update_h(X)
 
         # Forward solve to compute the temperature T
         self.fwd.solve()
-        if self.verbose>=2:
+        if self.verbose >= 2:
             if MPI.COMM_WORLD.rank == 0:
                 print("Current h = ", self.fwd.h.function.x.array)
         # Evaluate misfit and regularization terms
@@ -208,11 +219,15 @@ class SteadyHeat2DTAOSolver:
         misfit_scalar = fem.assemble_scalar(fem.form(misfit))
 
         ## Regularization
-        regularization = self.alpha * ufl.inner(ufl.grad(self.fwd.h.function), ufl.grad(self.fwd.h.function)) * ufl.dx
+        regularization = (
+            self.alpha
+            * ufl.inner(ufl.grad(self.fwd.h.function), ufl.grad(self.fwd.h.function))
+            * ufl.dx
+        )
         regularization_scalar = fem.assemble_scalar(fem.form(regularization))
 
-        J = 0.5 * ( (misfit_scalar/self.sigma2) + regularization_scalar )
-        if self.verbose>=2:
+        J = 0.5 * ((misfit_scalar / self.sigma2) + regularization_scalar)
+        if self.verbose >= 2:
             if MPI.COMM_WORLD.rank == 0:
                 print("Current J =", J)
 
@@ -220,17 +235,15 @@ class SteadyHeat2DTAOSolver:
         self.adj.solve()
         # Assemble the gradient vector
         grad_h = self.adj.assemble_gradient()  # PETSc Vec
-        grad_h.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                                mode=PETSc.ScatterMode.FORWARD)
+        grad_h.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
         # Copy the gradient into the PETSc Vec G
         if self.use_logh:
             ## chain rule: dJ/dm = dJ/dh * dh/dm = dJ/dh * exp(m) = dJ/dh * h
             G.pointwiseMult(grad_h, self.fwd.h.function.x.petsc_vec)
         else:
             grad_h.copy(result=G)
-        G.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                            mode=PETSc.ScatterMode.FORWARD)
-        if self.verbose==3:
+        G.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        if self.verbose == 3:
             if MPI.COMM_WORLD.rank == 0:
                 print("Current |G| =", G.norm())
         return J
@@ -245,9 +258,11 @@ class SteadyHeat2DTAOSolver:
         PETSc.TAO convergence reason code, refer to https://petsc.org/release/manualpages/Tao/TaoConvergedReason/ for details.
         """
         self.tao.solve(x=self.X0)
-        if self.verbose>0:
+        if self.verbose > 0:
             print("Convergence Reason:", self.tao.getConvergedReason())
-            print("For more details, refer to https://petsc.org/release/manualpages/Tao/TaoConvergedReason/")
+            print(
+                "For more details, refer to https://petsc.org/release/manualpages/Tao/TaoConvergedReason/"
+            )
         if self.use_logh:
             self.solution = np.exp(self.tao.getSolution().array)
         else:

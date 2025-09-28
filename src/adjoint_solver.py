@@ -15,6 +15,7 @@ from dolfinx.fem.petsc import LinearProblem
 # local imports
 from forward_solver import SteadyHeat2DForwardSolver
 
+
 class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
     r"""
     Adjoint solver for the adjoint equation of the steady-state Poisson heat equation on a 2D unit square:
@@ -31,13 +32,16 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
     Dirichlet boundary condition on the bottom wall: lambda_L(y=0)=0.
     Neumann boundary conditions on the other three insulated walls: \nabla\lambda_L\cdot\hat{n}=0.
     """
-    def __init__(self,
-                 forward_solver: SteadyHeat2DForwardSolver,
-                 T_obs: fem.Function or array-like,
-                 sigma: float = 1.0,
-                 alpha: float = 0.0,
-                 DBC_value: float = 0.0,
-                 petsc_opts: dict | None = None):
+
+    def __init__(
+        self,
+        forward_solver: SteadyHeat2DForwardSolver,
+        T_obs: fem.Function or array - like,
+        sigma: float = 1.0,
+        alpha: float = 0.0,
+        DBC_value: float = 0.0,
+        petsc_opts: dict | None = None,
+    ):
         """
         Parameters
         ----------
@@ -49,11 +53,15 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         """
         # Copy forward solver attributes:
         ## mesh, function space, botom_dofs;
-        self.mesh, self.V, self.bottom_dofs = forward_solver.mesh, forward_solver.V, forward_solver.bottom_dofs
+        self.mesh, self.V, self.bottom_dofs = (
+            forward_solver.mesh,
+            forward_solver.V,
+            forward_solver.bottom_dofs,
+        )
         ## thermal conductivity and heat source;
-        self.h, self.q    = forward_solver.h, forward_solver.q
+        self.h, self.q = forward_solver.h, forward_solver.q
         ## temperature;
-        self.T            = forward_solver.T
+        self.T = forward_solver.T
         ## PETSc options.
         self.petsc_opts = forward_solver.petsc_opts
         # Read observed temperature, noise level and ampltidue of regularization term.
@@ -69,11 +77,9 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
 
         # Define domain boundary conditions. Similar to those in the forward solver, except for DBC_value:
         ## 1) Dirichlet BC at the bottom.
-        self.bcs = [fem.dirichletbc(
-                        PETSc.ScalarType(DBC_value),
-                        self.bottom_dofs,
-                        self.V
-                    )]
+        self.bcs = [
+            fem.dirichletbc(PETSc.ScalarType(DBC_value), self.bottom_dofs, self.V)
+        ]
         ## 2) Neumann BC on the other three edges (insulated, zero flux).
         ## Note: No explicit Neumann BC is needed in the weak form.
 
@@ -81,7 +87,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         u = ufl.TrialFunction(self.V)
         v = ufl.TestFunction(self.V)
         self.a = ufl.inner(self.h.function * ufl.grad(u), ufl.grad(v)) * ufl.dx
-        self.L = (1./self.sigma2) * ufl.inner((self.T - self.T_obs), v) * ufl.dx
+        self.L = (1.0 / self.sigma2) * ufl.inner((self.T - self.T_obs), v) * ufl.dx
 
         # Specify options for the PETSc KSP linear system solver.
         ## Inherit PETSc options from forward solver if none provided
@@ -90,10 +96,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs.
         self.lambda_L = fem.Function(self.V, name="AdjointState")
         self.problem = LinearProblem(
-            self.a, self.L,
-            u=self.lambda_L,
-            bcs=self.bcs,
-            petsc_options=opts
+            self.a, self.L, u=self.lambda_L, bcs=self.bcs, petsc_options=opts
         )
 
     def solve(self) -> fem.Function:
@@ -120,9 +123,9 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         ##       = -\nablaT\cdot\nabla\lambda + \alpha\lapl h.
         v = ufl.TestFunction(self.V)
         grad_expr = (
-                - ufl.inner(ufl.grad(self.T), ufl.grad(self.lambda_L))*v \
-                + self.alpha * ufl.inner(ufl.grad(self.h.function), ufl.grad(v))
-            ) * ufl.dx
+            -ufl.inner(ufl.grad(self.T), ufl.grad(self.lambda_L)) * v
+            + self.alpha * ufl.inner(ufl.grad(self.h.function), ufl.grad(v))
+        ) * ufl.dx
         grad_form = fem.form(grad_expr)
         grad_vec = fem.petsc.assemble_vector(grad_form)
         grad_vec.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)

@@ -5,13 +5,18 @@ from dolfinx.plot import vtk_mesh
 from typing import Any, Sequence
 from numpy.typing import ArrayLike
 
-def plot_scalar_mesh(mesh, data: ArrayLike, name: str,
-                 cmap: str = "viridis", show_edges: bool = False,
-                 n_labels: int = 5,
-                 user_scalar_bar: dict | None = None,
-                 return_plotter: bool = False,
-                 **mesh_kwargs: Any,
-                ):
+
+def plot_scalar_mesh(
+    mesh,
+    data: ArrayLike,
+    name: str,
+    cmap: str = "viridis",
+    show_edges: bool = False,
+    n_labels: int = 5,
+    user_scalar_bar: dict | None = None,
+    return_plotter: bool = False,
+    **mesh_kwargs: Any,
+):
     """
     Plot a scalar field on a Dolfinx mesh using PyVista.
 
@@ -53,8 +58,14 @@ def plot_scalar_mesh(mesh, data: ArrayLike, name: str,
         scalar_bar.update(user_scalar_bar)
 
     pl = pv.Plotter()
-    pl.add_mesh(grid, scalars=name, cmap=cmap, show_edges=show_edges,
-                scalar_bar_args=scalar_bar,**mesh_kwargs)
+    pl.add_mesh(
+        grid,
+        scalars=name,
+        cmap=cmap,
+        show_edges=show_edges,
+        scalar_bar_args=scalar_bar,
+        **mesh_kwargs,
+    )
     pl.show()
     if return_plotter:
         return grid, pl
