@@ -15,7 +15,7 @@ from dolfinx import mesh, fem
 # local imports
 from forward_solver import SteadyHeat2DForwardSolver
 from adjoint_solver import SteadyHeat2DAdjointSolver
-from tangent_solver import _SteadyHeat2DTangentSolver
+from _tangent_solver import _SteadyHeat2DTangentSolver
 from tests._helpers import pick_random_test_direction
 
 n_mesh = 16
