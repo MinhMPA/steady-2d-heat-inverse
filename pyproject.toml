@@ -35,3 +35,8 @@ py-modules = [
   "domain_coefficient",
   "plotting_utils"
 ]
+
+[tool.pytest.ini_options]
+markers = [
+	"gradcheck: adjoint gradient validation tests",
+	]
