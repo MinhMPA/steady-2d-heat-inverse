@@ -19,16 +19,17 @@ from tests._helpers import eval_obj, pick_random_test_direction
 n_mesh = 16
 T_bottom = 300.0
 noise_sigma = 1.0
-reg_alpha = 1e-3
+reg_alpha = 5e-2
 
 rnd_seed = 244
 rnd_scale = 1.0
 step_size = [1e-5, 1e-4, 1e-3, 1e-2, 2e-2, 5e-2, 1e-1]
 
-rtol, atol = 1e-5, 1e-3
+rtol, atol = 1e-5, 1e-8
+
 
 def test_grad_taylorexp():
-    """
+    r"""
     Examine the scaling of the Taylor expansion residuals with the step size. The residual is defined as:
         R(step_size) = J[h0 + step_size*\delta h] - J[h0] - step_size*(dJ/dh)_h0\cdot\delta h,
     where (dJ/dh)_h0 is the adjoint gradient evaluated at h0 and \delta h is a random test direction.
@@ -44,13 +45,17 @@ def test_grad_taylorexp():
         return 2.0 + 3.0 * x[0] ** 2 + x[0] / (4.0 + 3.0 * x[1] ** 2)
 
     # Update h in the forward model
-    def update_h(fwd: SteadyHeat2DForwardSolver, stepsize: float, delta_h: fem.Function):
+    def update_h(
+        fwd: SteadyHeat2DForwardSolver, stepsize: float, delta_h: fem.Function
+    ):
         fwd.h.function.x.petsc_vec.axpy(stepsize, delta_h.x.petsc_vec)
         fwd.h.function.x.scatter_forward()
         pass
 
     # Restore h in the forward model
-    def restore_h(fwd: SteadyHeat2DForwardSolver, stepsize: float, delta_h: fem.Function):
+    def restore_h(
+        fwd: SteadyHeat2DForwardSolver, stepsize: float, delta_h: fem.Function
+    ):
         fwd.h.function.x.petsc_vec.axpy(-stepsize, delta_h.x.petsc_vec)
         fwd.h.function.x.scatter_forward()
         pass
@@ -59,9 +64,8 @@ def test_grad_taylorexp():
     def get_convergence_rate(R, step_size):
         R = np.asarray(R)
         step_size = np.asarray(step_size)
-        conv_rate = np.log(R[:-1]/R[1:])/np.log(step_size[:-1]/step_size[1:])
+        conv_rate = np.log(R[:-1] / R[1:]) / np.log(step_size[:-1] / step_size[1:])
         return conv_rate
-
 
     # True forward model
     fwd_truth = SteadyHeat2DForwardSolver(
@@ -110,4 +114,6 @@ def test_grad_taylorexp():
     print("Step sizes:", step_size)
     print("Residuals:", R)
     print("Convergence rates:", cr)
-    assert np.allclose(cr, 2.0, rtol=rtol, atol=atol), "Convergence rate is not close to 2 within target tolerance."
+    assert np.allclose(
+        cr, 2.0, rtol=rtol, atol=atol
+    ), "Convergence rate is not close to 2 within target tolerance."
