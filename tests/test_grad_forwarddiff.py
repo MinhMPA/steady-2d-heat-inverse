@@ -87,9 +87,8 @@ def test_grad_forwarddiff():
     )
     adj.solve()
     adj.update_gradient()
-    g = adj.grad  # PETSc Vec representing dJ/dh
     ## Assemble adjoint directional derivatives
-    adj_dir_deriv = g.dot(delta_h.x.petsc_vec)
+    adj_dir_deriv = adj.grad.dot(delta_h.x.petsc_vec)
 
     # ============ Compare Results ============
     # Error between adjoint and forward directional derivatives
