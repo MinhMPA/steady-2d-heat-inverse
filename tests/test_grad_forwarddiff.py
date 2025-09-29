@@ -16,7 +16,7 @@ from dolfinx import mesh, fem
 from forward_solver import SteadyHeat2DForwardSolver
 from adjoint_solver import SteadyHeat2DAdjointSolver
 from tangent_solver import _SteadyHeat2DTangentSolver
-from tests._helpers import eval_cost, pick_random_test_direction
+from tests._helpers import pick_random_test_direction
 
 n_mesh = 16
 T_bottom = 300.0

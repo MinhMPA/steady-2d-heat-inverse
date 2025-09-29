@@ -9,9 +9,9 @@ import ufl
 from dolfinx import fem
 
 
-def eval_cost(forward, T_obs, sigma: float, alpha: float) -> float:
+def eval_obj(forward, T_obs, sigma: float, alpha: float) -> float:
     r"""
-    Evaluate the cost function:
+    Evaluate the objective function:
         J[T(h), h] = 0.5 * [ \int_\Omega [T(h) - T_obs]^2/\sigma^2 + \alpha * \int_\Omega (\nabla h)^2 ].
     See adjoint_solver.py and tao_solver.py for details.
     """

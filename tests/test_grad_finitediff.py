@@ -14,7 +14,7 @@ from dolfinx import fem
 # local imports
 from forward_solver import SteadyHeat2DForwardSolver
 from adjoint_solver import SteadyHeat2DAdjointSolver
-from tests._helpers import eval_cost, pick_random_test_direction
+from tests._helpers import eval_obj, pick_random_test_direction
 
 n_mesh = 16
 T_bottom = 300.0
@@ -73,7 +73,7 @@ def test_grad_finitediff():
     ## Pick random test direction
     delta_h = pick_random_test_direction(fwd.V, seed=rnd_seed, scale=rnd_scale)
     ## Evaluate baseline objective at h0
-    J0 = eval_cost(fwd, T_obs, noise_sigma, reg_alpha)
+    J0 = eval_obj(fwd, T_obs, noise_sigma, reg_alpha)
     ## Update h0 -> h0 + step_size*delta_h
     fwd.h.function.x.petsc_vec.axpy(step_size, delta_h.x.petsc_vec)
     fwd.h.function.x.petsc_vec.ghostUpdate(
@@ -82,7 +82,7 @@ def test_grad_finitediff():
     ## Solve
     fwd.solve()
     ## Evaluate new objective
-    J_plus = eval_cost(fwd, T_obs, noise_sigma, reg_alpha)
+    J_plus = eval_obj(fwd, T_obs, noise_sigma, reg_alpha)
 
     # Assemble directional derivatives
     fd_dderiv = (J_plus - J0) / (step_size)
