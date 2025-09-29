@@ -255,7 +255,7 @@ class SteadyHeat2DTAOSolver:
 
         Returns
         -------
-        PETSc.TAO convergence reason code, refer to https://petsc.org/release/manualpages/Tao/TaoConvergedReason/ for details.
+        PETSc.vec : the solution vector for thermal conductivity h(x,y).
         """
         self.tao.solve(x=self.X0)
         if self.verbose > 0:
