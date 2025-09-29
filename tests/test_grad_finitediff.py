@@ -76,9 +76,7 @@ def test_grad_finitediff():
     J0 = eval_obj(fwd, T_obs, noise_sigma, reg_alpha)
     ## Update h0 -> h0 + step_size*delta_h
     fwd.h.function.x.petsc_vec.axpy(step_size, delta_h.x.petsc_vec)
-    fwd.h.function.x.petsc_vec.ghostUpdate(
-        addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD
-    )
+    fwd.h.function.x.scatter_forward()
     ## Solve
     fwd.solve()
     ## Evaluate new objective
