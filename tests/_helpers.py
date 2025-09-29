@@ -19,7 +19,7 @@ def eval_obj(forward, T_obs, sigma: float, alpha: float) -> float:
     T = forward.T
     h = forward.h.function
     delta_T = T - T_obs
-    misfit = 0.5 * (1.0 / sigma * sigma) * ufl.inner(delta_T, delta_T) * dx
+    misfit = 0.5 * (1.0/sigma**2) * ufl.inner(delta_T, delta_T) * dx
     reg = 0.5 * alpha * ufl.inner(ufl.grad(h), ufl.grad(h)) * dx
     return fem.assemble_scalar(fem.form(misfit + reg))
 
