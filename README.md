@@ -12,11 +12,18 @@ conda env create -n steady-2d-heat-inverse -f environment.yml
 conda activate steady-2d-heat-inverse
 pip install -e .
 ```
-
 ## Usage
 
 - The [notebooks/ForwardSolve.ipynb](notebooks/ForwardSolve.ipynb) notebook demonstrates how to solve the forward problem.
 - The [notebooks/InverseSolve.ipynb](notebooks/ForwardSolve.ipynb) notebook demonstrates how to solve the inverse problem.
+
+## Tests
+
+To run gradient tests:
+
+```
+pytest -m gradcheck
+```
 
 ## References
 
