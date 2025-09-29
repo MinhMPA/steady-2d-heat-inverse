@@ -29,7 +29,7 @@ class _SteadyHeat2DTangentSolver(SteadyHeat2DForwardSolver):
         self,
         forward: SteadyHeat2DForwardSolver,
         petsc_opts: dict | None = None,
-     ):
+    ):
         """
         Parameters
         ----------

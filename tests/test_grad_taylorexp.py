@@ -14,7 +14,7 @@ from dolfinx import fem
 # local imports
 from forward_solver import SteadyHeat2DForwardSolver
 from adjoint_solver import SteadyHeat2DAdjointSolver
-from tests._helpers import eval_obj, pick_random_test_direction
+from ._helpers import eval_obj, pick_random_test_direction
 
 n_mesh = 16
 T_bottom = 300.0
