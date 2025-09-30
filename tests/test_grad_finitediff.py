@@ -14,7 +14,7 @@ from dolfinx import fem
 # local imports
 from forward_solver import SteadyHeat2DForwardSolver
 from adjoint_solver import SteadyHeat2DAdjointSolver
-from ._helpers import eval_obj, pick_random_test_direction
+from ._helpers import eval_obj, pick_random_test_direction, h_true, h0, update_h
 
 n_mesh = 16
 T_bottom = 300.0
@@ -23,26 +23,18 @@ reg_alpha = 1e-6
 
 rnd_seed = 244
 rnd_scale = 1.0
-step_size = 1e-6
+step_size = 1e-5
 
 rtol, atol = 1e-5, 1e-8
 
 
 def test_grad_finitediff():
-    """
+    r"""
     Compare adjoint and finite-difference directional derivatives:
         DJ[h0,\delta h]=dJ/dh\cdot\delta h.
-    The finite-difference directional derivative is the forward difference:
-        DJ_fd[h0,\delta h] = (J(h0 + step_size*\delta h) - J(h0)) / step_size.
+    The finite-difference directional derivative is the central difference:
+        DJ_fd[h0,\delta h] = (J(h0 + step_size*\delta h) - J(h0 - step_size*\delta_h)) / (2*step_size).
     """
-
-    # True h(x,y) used to generate observations
-    def h_true(x):
-        return 1.0 + 6.0 * x[0] ** 2 + x[0] / (1.0 + 2.0 * x[1] ** 2)
-
-    # Initial guess for h(x,y) used in optimization
-    def h0(x):
-        return 2.0 + 3.0 * x[0] ** 2 + x[0] / (4.0 + 3.0 * x[1] ** 2)
 
     # True forward model
     fwd_truth = SteadyHeat2DForwardSolver(
@@ -75,15 +67,22 @@ def test_grad_finitediff():
     ## Evaluate baseline objective at h0
     J0 = eval_obj(fwd, T_obs, noise_sigma, reg_alpha)
     ## Update h0 -> h0 + step_size*delta_h
-    fwd.h.function.x.petsc_vec.axpy(step_size, delta_h.x.petsc_vec)
-    fwd.h.function.x.scatter_forward()
+    update_h(fwd, step_size, delta_h)
     ## Solve
     fwd.solve()
     ## Evaluate new objective
     J_plus = eval_obj(fwd, T_obs, noise_sigma, reg_alpha)
+    ## Restore h0
+    update_h(fwd, -step_size, delta_h)
+    ## Update h0 -> h0 - step_size*delta_h
+    update_h(fwd, -step_size, delta_h)
+    ## Solve
+    fwd.solve()
+    ## Evaluate new objective
+    J_minus = eval_obj(fwd, T_obs, noise_sigma, reg_alpha)
 
     # Assemble directional derivatives
-    fd_dderiv = (J_plus - J0) / (step_size)
+    fd_dderiv = (J_plus - J_minus) / (2.0 * step_size)
     adj_dderiv = adj.grad.dot(delta_h.x.petsc_vec)
 
     # Error between adjoint and finite-difference gradients

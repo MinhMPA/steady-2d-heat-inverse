@@ -16,7 +16,7 @@ from dolfinx import mesh, fem
 from forward_solver import SteadyHeat2DForwardSolver
 from adjoint_solver import SteadyHeat2DAdjointSolver
 from ._tangent_solver import _SteadyHeat2DTangentSolver
-from ._helpers import pick_random_test_direction
+from ._helpers import pick_random_test_direction, h_true, h0
 
 n_mesh = 16
 T_bottom = 300.0
@@ -39,14 +39,6 @@ def test_grad_forwarddiff():
         (dJ/dh)\cdot\delta h = (1/\sigma^2)\int_\Omega dx [(T-T_obs)\cdot\delta T + \alpha(\nabla h\cdot\nabla\delta h)].
     """
 
-    # True h(x,y) used to generate observations
-    def h_true(x):
-        return 1.0 + 6.0 * x[0] ** 2 + x[0] / (1.0 + 2.0 * x[1] ** 2)
-
-    # Initial guess for h(x,y) used in optimization
-    def h_init(x):
-        return 2.0 + 3.0 * x[0] ** 2 + x[0] / (4.0 + 3.0 * x[1] ** 2)
-
     # True forward model
     fwd_truth = SteadyHeat2DForwardSolver(
         nmesh=n_mesh, mesh_type="quadrilateral", h=h_true, q=1.0, DBC_value=T_bottom
@@ -56,7 +48,7 @@ def test_grad_forwarddiff():
 
     # Initial forward model
     fwd = SteadyHeat2DForwardSolver(
-        nmesh=n_mesh, mesh_type="quadrilateral", h=h_init, q=1.0, DBC_value=T_bottom
+        nmesh=n_mesh, mesh_type="quadrilateral", h=h0, q=1.0, DBC_value=T_bottom
     )
     # Initial solution
     fwd.solve()

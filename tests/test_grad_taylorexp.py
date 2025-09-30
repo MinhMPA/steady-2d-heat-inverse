@@ -14,7 +14,7 @@ from dolfinx import fem
 # local imports
 from forward_solver import SteadyHeat2DForwardSolver
 from adjoint_solver import SteadyHeat2DAdjointSolver
-from ._helpers import eval_obj, pick_random_test_direction
+from ._helpers import eval_obj, pick_random_test_direction, h_true, h0, update_h
 
 n_mesh = 16
 T_bottom = 300.0
@@ -35,30 +35,6 @@ def test_grad_taylorexp():
     where (dJ/dh)_h0 is the adjoint gradient evaluated at h0 and \delta h is a random test direction.
     The expected scaling is ln R(step_size) ~ 2 ln(step_size) for small step sizes.
     """
-
-    # True h(x,y) used to generate observations
-    def h_true(x):
-        return 1.0 + 6.0 * x[0] ** 2 + x[0] / (1.0 + 2.0 * x[1] ** 2)
-
-    # Initial guess for h(x,y) used in optimization
-    def h0(x):
-        return 2.0 + 3.0 * x[0] ** 2 + x[0] / (4.0 + 3.0 * x[1] ** 2)
-
-    # Update h in the forward model
-    def update_h(
-        fwd: SteadyHeat2DForwardSolver, stepsize: float, delta_h: fem.Function
-    ):
-        fwd.h.function.x.petsc_vec.axpy(stepsize, delta_h.x.petsc_vec)
-        fwd.h.function.x.scatter_forward()
-        pass
-
-    # Restore h in the forward model
-    def restore_h(
-        fwd: SteadyHeat2DForwardSolver, stepsize: float, delta_h: fem.Function
-    ):
-        fwd.h.function.x.petsc_vec.axpy(-stepsize, delta_h.x.petsc_vec)
-        fwd.h.function.x.scatter_forward()
-        pass
 
     # Compute convergence rate of Taylor expansion residuals
     def get_convergence_rate(R, step_size):
@@ -109,7 +85,7 @@ def test_grad_taylorexp():
         J = eval_obj(fwd, T_obs, noise_sigma, reg_alpha)
         ## Taylor expansion residual
         R.append(J - J0 - step * adj.grad.dot(delta_h.x.petsc_vec))
-        restore_h(fwd, step, delta_h)
+        update_h(fwd, -step, delta_h)
     cr = get_convergence_rate(R, step_size)
     print("Step sizes:", step_size)
     print("Residuals:", R)
