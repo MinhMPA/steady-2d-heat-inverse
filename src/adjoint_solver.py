@@ -42,7 +42,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         DBC_value: float = 0.0,
         petsc_opts: dict | None = None,
     ):
-        """
+        r"""
         Parameters
         ----------
         forward         : forward solver instance, providing mesh, V, bottom_dofs, h, q, T.
@@ -63,7 +63,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         ## temperature;
         self.T = forward.T
         ## PETSc options.
-        self.petsc_opts = forward.petsc_opts
+        self.petsc_opts = dict(forward.petsc_opts)
         # Read observed temperature, noise level and ampltidue of regularization term.
         self.T_obs = fem.Function(self.V, name="ObservedTemperature")
         if isinstance(T_obs, fem.Function):
@@ -91,7 +91,8 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
 
         # Specify options for the PETSc KSP linear system solver.
         ## Inherit PETSc options from forward solver if none provided
-        opts = petsc_opts if petsc_opts is not None else self.petsc_opts
+        opts = self.petsc_opts | (petsc_opts or {})
+        self.petsc_opts = opts
 
         # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs.
         self.lambda_L = fem.Function(self.V, name="AdjointState")

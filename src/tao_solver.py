@@ -17,6 +17,10 @@ from dolfinx import fem
 # local imports
 from forward_solver import SteadyHeat2DForwardSolver
 from adjoint_solver import SteadyHeat2DAdjointSolver
+from ksp_tolerance_controller import (
+    AdaptiveKSPRTOLSettings,
+    SharedKSPToleranceController,
+)
 
 
 class SteadyHeat2DTAOSolver:
@@ -41,6 +45,7 @@ class SteadyHeat2DTAOSolver:
         gttol: float = 1e-3,
         mit: int = 1000,
         monitor: Callable | None = None,
+        adaptive_ksp_rtol: dict | None = None,
         options: bool = False,
         verbose: int = 0,
     ):
@@ -56,8 +61,12 @@ class SteadyHeat2DTAOSolver:
         use_logh         : whether to optimize in log(h)
         gatol            : gradient absolute tolerance.
         grtol            : gradient relative tolerance.
+        gttol            : gradient norm tolerance.
         mit              : maximum number of iterations.
         monitor          : the monitor function to track the optimization progress.
+        adaptive_ksp_rtol: optional adaptive shared KSP tolerance settings for
+                           forward and adjoint solves. Expected keys match
+                           AdaptiveKSPRTOLSettings.
         options          : whether and which options to configure the solver, refer to https://petsc.org/release/manualpages/Tao/TaoSetFromOptions for details.
         verbose          : verbosity level, 0-3
         """
@@ -67,6 +76,8 @@ class SteadyHeat2DTAOSolver:
         self.sigma2 = adjoint.sigma2
         self.use_logh = use_logh
         self.verbose = verbose
+        self._user_monitor = monitor
+        self.ksp_rtol_controller = None
         if self.use_logh:
             if h_min <= 0.0:
                 raise ValueError("h_min must be positive to define log(h_min).")
@@ -113,9 +124,20 @@ class SteadyHeat2DTAOSolver:
         # Set the maximum number of iterations
         self.tao.setMaximumIterations(mit)
 
+        if adaptive_ksp_rtol is not None:
+            settings = AdaptiveKSPRTOLSettings(**adaptive_ksp_rtol)
+            self.ksp_rtol_controller = SharedKSPToleranceController(
+                (self.fwd, self.adj), settings=settings
+            )
+            if self.verbose >= 1 and MPI.COMM_WORLD.rank == 0:
+                print(
+                    "Adaptive shared forward/adjoint ksp_rtol starts at"
+                    f" {self.ksp_rtol_controller.current_rtol:.3e}."
+                )
+
         ## OPTIONAL: Monitor optimization progress
-        if monitor is not None:
-            self.tao.setMonitor(monitor)
+        if self._user_monitor is not None or self.ksp_rtol_controller is not None:
+            self.tao.setMonitor(self._monitor)
         ## OPTIONAL: Command-line options
         if options:
             self.tao.setFromOptions()
@@ -247,6 +269,19 @@ class SteadyHeat2DTAOSolver:
             if MPI.COMM_WORLD.rank == 0:
                 print("Current |G| =", G.norm())
         return J
+
+    def _monitor(self, tao):
+        if self.ksp_rtol_controller is not None:
+            status = tao.getSolutionStatus()
+            tightened = self.ksp_rtol_controller.observe_tao_status(status)
+            if tightened and self.verbose >= 1 and MPI.COMM_WORLD.rank == 0:
+                its, *_rest = status
+                print(
+                    f"[TAO] tightened shared ksp_rtol to "
+                    f"{self.ksp_rtol_controller.current_rtol:.3e} at iter {its}."
+                )
+        if self._user_monitor is not None:
+            self._user_monitor(tao)
 
     # Driver method to solve the optimization problem with the TAO solver
     def solve(self):

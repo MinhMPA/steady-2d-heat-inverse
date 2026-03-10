@@ -103,6 +103,48 @@ class SteadyHeat2DForwardSolver:
             self.a, self.L, u=self.T, bcs=self.bcs, petsc_options=self.petsc_opts
         )
 
+    def get_ksp_tolerances(self) -> tuple[float, float, float, int]:
+        """
+        Return the current KSP tolerances from the wrapped PETSc solver.
+        """
+        return self.problem.solver.getTolerances()
+
+    def get_ksp_rtol(self) -> float:
+        """
+        Return the current KSP relative tolerance.
+        """
+        rtol, _, _, _ = self.get_ksp_tolerances()
+        return float(rtol)
+
+    def set_ksp_tolerances(
+        self,
+        *,
+        rtol: float | None = None,
+        atol: float | None = None,
+        divtol: float | None = None,
+        max_it: int | None = None,
+    ) -> None:
+        """
+        Update the PETSc KSP tolerances for the wrapped linear solve.
+        """
+        self.problem.solver.setTolerances(
+            rtol=rtol, atol=atol, divtol=divtol, max_it=max_it
+        )
+        if rtol is not None:
+            self.petsc_opts["ksp_rtol"] = rtol
+        if atol is not None:
+            self.petsc_opts["ksp_atol"] = atol
+        if divtol is not None:
+            self.petsc_opts["ksp_divtol"] = divtol
+        if max_it is not None:
+            self.petsc_opts["ksp_max_it"] = max_it
+
+    def set_ksp_rtol(self, rtol: float) -> None:
+        """
+        Update only the PETSc KSP relative tolerance.
+        """
+        self.set_ksp_tolerances(rtol=rtol)
+
     # Main driver method to solve the steady-state heat equation as a linear variational problem.
     def solve(self) -> fem.Function:
         """
