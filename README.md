@@ -1,5 +1,9 @@
 # steady-2d-heat-inverse
 
+[![Documentation Status](https://readthedocs.org/projects/steady-2d-heat-inverse/badge/?version=latest)](https://steady-2d-heat-inverse.readthedocs.io/en/latest/)
+
+📖 **[Full documentation](https://steady-2d-heat-inverse.readthedocs.io/)** — theory, usage, and API reference.
+
 PDE-constrained inverse problem: infer the spatially-varying thermal conductivity `h(x,y)`
 of a 2D unit square from a noisy steady-state temperature field, using a **discrete
 adjoint** gradient driven by **PETSc TAO** bound-constrained optimization.
@@ -106,8 +110,19 @@ pytest -m gradcheck   # just the three gradient checks — real FEM solves, take
 
 ## Documentation
 
-Full documentation (theory, usage, API reference) is built with Sphinx and configured for
-[Read the Docs](https://about.readthedocs.com/):
+Hosted on Read the Docs and rebuilt on every push to `master`:
+
+**[steady-2d-heat-inverse.readthedocs.io](https://steady-2d-heat-inverse.readthedocs.io/)**
+
+| Page | Contents |
+|---|---|
+| [Installation](https://steady-2d-heat-inverse.readthedocs.io/en/latest/installation.html) | conda environment, the flat-module import convention |
+| [Theory](https://steady-2d-heat-inverse.readthedocs.io/en/latest/theory.html) | forward problem, objective, discrete adjoint, `log h` parametrization |
+| [Usage](https://steady-2d-heat-inverse.readthedocs.io/en/latest/usage.html) | every constructor option, accepted coefficient inputs, MPI notes |
+| [Testing](https://steady-2d-heat-inverse.readthedocs.io/en/latest/testing.html) | the three gradient verifications and the fast validation modules |
+| [API reference](https://steady-2d-heat-inverse.readthedocs.io/en/latest/api/index.html) | autodoc for all five modules |
+
+To build it locally:
 
 ```bash
 pip install -r docs/requirements.txt

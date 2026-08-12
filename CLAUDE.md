@@ -139,8 +139,9 @@ changes).
 
 ## Documentation
 
-Sphinx + MyST + `sphinx_rtd_theme`, deployed via Read the Docs (`.readthedocs.yaml`,
-`fail_on_warning: true`).
+Sphinx + MyST + `sphinx_rtd_theme`, published at
+**https://steady-2d-heat-inverse.readthedocs.io/** and rebuilt by Read the Docs on every
+push to `master` (`.readthedocs.yaml`, `fail_on_warning: true`).
 
 **The docs build never installs the scientific stack.** `docs/conf.py` mocks it through
 `autodoc_mock_imports` (dolfinx, petsc4py, ufl, basix, mpi4py, numpy, scipy, pandas,

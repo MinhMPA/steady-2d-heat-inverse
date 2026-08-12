@@ -7,6 +7,11 @@ requires-python = ">=3.11"
 # Minimal dependencies, beyond those listed in environment.yaml
 dependencies = []
 
+# Project links, surfaced by packaging tooling.
+[project.urls]
+Documentation = "https://steady-2d-heat-inverse.readthedocs.io/"
+Repository = "https://github.com/MinhMPA/steady-2d-heat-inverse"
+
 # Optional dependencies for development and testing
 [project.optional-dependencies]
 dev = [
