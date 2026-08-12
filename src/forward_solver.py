@@ -39,6 +39,7 @@ class SteadyHeat2DForwardSolver:
         q: Union[float, fem.Constant, fem.Expression, Callable] = 1.0,
         DBC_value: float = 300.0,
         petsc_opts: dict = None,
+        tab_interpolator: str = "rbf",
     ):
         """
         Parameters
@@ -50,6 +51,7 @@ class SteadyHeat2DForwardSolver:
         q          : heat source, same allowed types as h.
         DBC_value  : Dirichlet BC for T at the bottom, i.e. T(y=0)=T0.
         petsc_opts : Dictionary of PETSc options.
+        tab_interpolator : interpolation scheme for tabulated h/q input, "rbf" or "ct".
         """
         # Define the problem domain, discretized on a unit square mesh. Two mesh types are supported: 'quadrilateral' and 'triangle'.
         if mesh_type not in ["quadrilateral", "triangle"]:
@@ -69,8 +71,10 @@ class SteadyHeat2DForwardSolver:
         self.V = fem.functionspace(self.mesh, ("Lagrange", 1))
 
         # Define thermal conductivity and heat source as domain coefficients.
-        self.h = ThermalConductivity(h, self.mesh, self.V)
-        self.q = HeatSource(q, self.mesh, self.V)
+        self.h = ThermalConductivity(
+            h, self.mesh, self.V, tab_interpolator=tab_interpolator
+        )
+        self.q = HeatSource(q, self.mesh, self.V, tab_interpolator=tab_interpolator)
 
         # Define domain boundary conditions:
         ## 1) Dirichlet BC at the bottom.

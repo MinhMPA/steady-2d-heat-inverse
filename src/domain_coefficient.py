@@ -37,13 +37,19 @@ class BaseDomainCoefficient(ABC):
         mesh: mesh.Mesh,
         V: fem.FunctionSpace,
         *,
-        tab_interpolator: Literal["rbf", "ct"] = "ct",
+        tab_interpolator: Literal["rbf", "ct"] = "rbf",
     ):
+        if tab_interpolator not in ("rbf", "ct"):
+            raise ValueError(
+                f"Unsupported tab_interpolator: {tab_interpolator}. "
+                "Supported types: ['rbf','ct']."
+            )
         self._user_input = user_input
         self._mesh = mesh
         self._V = V
-        self.function = self._build()
+        # Must precede _build(): the tabulated branch reads it.
         self._tab_interpolator = tab_interpolator
+        self.function = self._build()
 
     def _coefficient_from_user_input(self) -> Union[fem.Constant, fem.Function]:
         """
@@ -93,16 +99,20 @@ class BaseDomainCoefficient(ABC):
         if isinstance(self._user_input, (np.ndarray, pd.DataFrame)):
             self.constant = False
             pts, vals = self._parse_tab(self._user_input)
-            ## piece-wise cubic interpolation, rescale to unit square before interpolating
-            ## no extrapolation, values outside of the point convex hull can be specified with `fill_value`
-            ## only works in 2D, but memory ~ O(N log N)
-            # interp = CloughTocher2DInterpolator(pts, vals, fill_value=vals.mean(), rescale=True)
-            ## radial basis function interpolation, cubic kernel with degree-1 polynomial added
-            ## more hyperparameters but offers smoothing at sampled data points and extrapolation
-            ## works in any dimension, but memory ~ O(N^2), can adjust neighbors to reduce memory usage
-            interp = RBFInterpolator(
-                pts, vals, kernel="cubic", neighbors=None, smoothing=0.0, degree=1
-            )
+            if self._tab_interpolator == "ct":
+                ## piece-wise cubic interpolation, rescale to unit square before interpolating
+                ## no extrapolation, values outside of the point convex hull are set to `fill_value`
+                ## only works in 2D, but memory ~ O(N log N)
+                interp = CloughTocher2DInterpolator(
+                    pts, vals, fill_value=vals.mean(), rescale=True
+                )
+            else:
+                ## radial basis function interpolation, cubic kernel with degree-1 polynomial added
+                ## more hyperparameters but offers smoothing at sampled data points and extrapolation
+                ## works in any dimension, but memory ~ O(N^2), can adjust neighbors to reduce memory usage
+                interp = RBFInterpolator(
+                    pts, vals, kernel="cubic", neighbors=None, smoothing=0.0, degree=1
+                )
             f = fem.Function(self._V)
 
             def interpolate_func(x):
