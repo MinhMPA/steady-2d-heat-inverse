@@ -206,12 +206,14 @@ class SteadyHeat2DForwardSolver:
         **kwargs   : additional keyword arguments, see `plotting_utils.plot_scalar_mesh()` for details.
         """
         if noiseless:
-            assert hasattr(self, "T"), "No solution available. Call solve() first."
+            if not hasattr(self, "T"):
+                raise RuntimeError("No solution available. Call solve() first.")
             vals = self.T.x.array[: self.mesh.geometry.x.shape[0]] - zero_point
         else:
-            assert hasattr(
-                self, "T_obs"
-            ), "No noisy observation available. Call add_noise() first."
+            if not hasattr(self, "T_obs"):
+                raise RuntimeError(
+                    "No noisy observation available. Call add_noise() first."
+                )
             vals = self.T_obs.x.array[: self.mesh.geometry.x.shape[0]] - zero_point
         if zero_point != 0.0:
             print(

@@ -63,5 +63,5 @@ def test_plotting_noisy_field_without_noise_points_at_add_noise():
     fwd = SteadyHeat2DForwardSolver(nmesh=4, h=lambda x: 1.0 + x[0], q=1.0)
     fwd.solve()
 
-    with pytest.raises(AssertionError, match="add_noise"):
+    with pytest.raises(RuntimeError, match="add_noise"):
         fwd.plot_output_temperature(noiseless=False)
