@@ -77,7 +77,7 @@ def test_grad_taylorexp():
         fwd.solve()
         ## New adjoint solution and gradient
         adj = SteadyHeat2DAdjointSolver(
-            fwd, T_obs, sigma=noise_sigma, alpha=reg_alpha, DBC_value=T_bottom
+            fwd, T_obs, sigma=noise_sigma, alpha=reg_alpha, DBC_value=0.0
         )
         adj.solve()
         adj.update_gradient()
