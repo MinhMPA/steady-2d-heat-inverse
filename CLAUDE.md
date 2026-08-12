@@ -17,7 +17,7 @@ gradient driven by **PETSc TAO** bound-constrained optimization.
   `dJ/dh = −∇T·∇λ + α∇h·∇v`. The operator is self-adjoint, so the adjoint LHS is identical
   to the forward LHS — one gradient costs ~2 linear solves regardless of the number of DOFs.
 - **Parametrization**: optimize in `m = log h` by default (`use_logh=True`), which enforces
-  positivity and applies the chain rule `dJ/dm = h · dJ/dh` (`tao_solver.py:242`).
+  positivity and applies the chain rule `dJ/dm = h · dJ/dh` (`tao_solver.py:_objgrad`).
 
 ## Tech Stack
 
@@ -29,7 +29,7 @@ gradient driven by **PETSc TAO** bound-constrained optimization.
 | Interpolation | SciPy `RBFInterpolator` / `CloughTocher2DInterpolator` |
 | Visualization / IO | PyVista, XDMF+HDF5, h5py |
 | Env / build | conda-forge (`environment.yml`) + setuptools editable install |
-| Tests | pytest with a `gradcheck` marker |
+| Tests | pytest; slow gradient tests carry a `gradcheck` marker, fast validation tests do not |
 
 ## Layout
 
@@ -40,7 +40,7 @@ src/                       flat top-level modules (see import gotcha below)
   tao_solver.py            SteadyHeat2DTAOSolver — TAO wrapper, bounds, log(h) reparam, _objgrad callback
   domain_coefficient.py    BaseDomainCoefficient (ABC) + ThermalConductivity / HeatSource
   plotting_utils.py        plot_scalar_mesh() — PyVista rendering (rank-0 only)
-tests/                     three independent gradient verifications + private helpers
+tests/                     3 gradient verifications + 2 fast validation modules + private helpers
 notebooks/                 ForwardSolve, InverseSolve, EvaluateSolution
 test_data/                 blackbox_output.{xdmf,h5} — synthetic "measured" data
 docs/                      Sphinx source (MyST + autodoc); `.readthedocs.yaml` at repo root
@@ -49,8 +49,7 @@ docs/                      Sphinx source (MyST + autodoc); `.readthedocs.yaml` a
 **Import gotcha (most common mistake):** `pyproject.toml` installs the sources as *flat
 top-level modules* via `py-modules`, so it is `from forward_solver import ...` — never
 `from src.forward_solver` and never a `steady_2d_heat_inverse` package.
-`src/__init__.py` is vestigial: its relative imports are never exercised and its `__all__`
-misspells `SteadyHeat2DForwardSolver` as `SteadyHeatForwardSolver2D`.
+`src/__init__.py` is vestigial: its relative imports are never exercised.
 
 ## Data Flow
 
@@ -68,7 +67,8 @@ conda env create -n steady-2d-heat-inverse -f environment.yml
 conda activate steady-2d-heat-inverse
 pip install -e ".[dev]"
 
-pytest -m gradcheck          # adjoint gradient verification (real FEM solves)
+pytest -q                    # full suite (16 tests)
+pytest -m gradcheck          # adjoint gradient verification only (real FEM solves)
 mpirun -n 4 python script.py # MPI-parallel run
 
 pip install -r docs/requirements.txt
@@ -89,7 +89,8 @@ sphinx-build -W -b html docs docs/_build/html   # docs build; no conda stack nee
   vector, `ghostUpdate()`. Print and plot only on `MPI.COMM_WORLD.rank == 0`.
 - **Commits**: short imperative subject lines, no prefixes/scopes ("Clean up adjoint_solver").
 - **Tests**: `tests/test_grad_*.py`, marked `pytest.mark.gradcheck` via a module-level
-  `pytestmark`; markers are registered in `pyproject.toml`.
+  `pytestmark`; `tests/test_domain_coefficient.py` and `tests/test_solver_validation.py`
+  carry no marker. Markers are registered in `pyproject.toml`.
 
 ## Testing Strategy
 
@@ -101,14 +102,15 @@ touching `adjoint_solver.py` or the objective:
 3. `test_grad_taylorexp.py` — Taylor-remainder convergence rate must be ≈ 2.
 
 CI: `.github/workflows/install-and-import.yml` (env + editable install + import smoke test,
-every push) and `run-gradchecks.yml` (micromamba + `pytest -m gradcheck`, on `src/**`,
-`tests/**`, `pyproject.toml`, `environment.yml` changes).
+every push) and `run-gradchecks.yml` (micromamba + `pytest -q --maxfail=1 --durations=10`,
+the full 16-test suite, on `src/**`, `tests/**`, `pyproject.toml`, `environment.yml`
+changes).
 
 ## Where to Look
 
 | I want to... | Look at... |
 |---|---|
-| Change the PDE, BCs, or mesh | `src/forward_solver.py` (`__init__`, weak form at ~L92) |
+| Change the PDE, BCs, or mesh | `src/forward_solver.py` (weak form in `SteadyHeat2DForwardSolver.__init__`) |
 | Change the objective or gradient | `src/adjoint_solver.py` + `tao_solver.py:_objgrad` |
 | Change the optimizer, bounds, parametrization | `src/tao_solver.py` |
 | Accept a new input type for `h` or `q` | `src/domain_coefficient.py:_coefficient_from_user_input` |

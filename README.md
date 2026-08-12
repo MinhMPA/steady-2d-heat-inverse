@@ -87,7 +87,7 @@ src/
   tao_solver.py            SteadyHeat2DTAOSolver — TAO wrapper, bounds, log(h) reparam
   domain_coefficient.py    BaseDomainCoefficient + ThermalConductivity / HeatSource
   plotting_utils.py        plot_scalar_mesh() — PyVista rendering (rank-0 only)
-tests/                     three independent gradient verifications
+tests/                     3 gradient verifications + 2 fast validation modules
 notebooks/                 ForwardSolve, InverseSolve, EvaluateSolution
 test_data/                 blackbox_output.{xdmf,h5} — synthetic "measured" data
 docs/                      Sphinx documentation source
@@ -97,13 +97,12 @@ docs/                      Sphinx documentation source
 
 Gradient correctness is verified three independent ways — against central finite
 differences, against a tangent-linear (JVP) solve, and via a Taylor-remainder convergence
-rate of ≈ 2:
+rate of ≈ 2. Two further modules add fast constructor- and input-validation checks.
 
 ```bash
-pytest -m gradcheck
+pytest -q            # full suite (16 tests)
+pytest -m gradcheck   # just the three gradient checks — real FEM solves, take minutes
 ```
-
-These run real FEM solves and take minutes.
 
 ## Documentation
 

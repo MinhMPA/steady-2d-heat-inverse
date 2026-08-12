@@ -63,7 +63,7 @@ something UFL can treat as a coefficient:
 | `dolfinx.fem.Constant` | itself | |
 | `dolfinx.fem.Expression` | `fem.Function` | interpolated onto `V` |
 | `callable(x)` | `fem.Constant` or `fem.Function` | called on `ufl.SpatialCoordinate`; a callable returning a plain scalar collapses to a `Constant` |
-| `numpy.ndarray` of shape `(N, 3)` | `fem.Function` | columns `[x, y, value]`, interpolated with `scipy.interpolate.RBFInterpolator` (cubic kernel, degree-1 polynomial tail) |
+| `numpy.ndarray` of shape `(N, 3)` | `fem.Function` | columns `[x, y, value]`, interpolated per `tab_interpolator` (default RBF, cubic kernel, degree-1 tail) — see the note below |
 | `pandas.DataFrame` with `x`, `y`, `value` columns | `fem.Function` | column names are matched case-insensitively; a missing column raises `ValueError` |
 
 Anything else raises `TypeError`.

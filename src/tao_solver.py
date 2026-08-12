@@ -75,7 +75,8 @@ class SteadyHeat2DTAOSolver:
             raise TypeError(
                 "Thermal conductivity h must be a fem.Function to be optimized: TAO "
                 "optimizes its DOF vector, and a scalar or fem.Constant h has no DOFs. "
-                "Pass a callable or a tabulated (N,3) array as `h` to the forward solver."
+                "Pass a spatially-varying callable or a tabulated (N,3) array as `h` to the "
+                "forward solver."
             )
         if self.use_logh:
             if h_min is None or h_min <= 0.0:
