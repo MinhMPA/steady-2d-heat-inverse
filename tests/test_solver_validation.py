@@ -56,3 +56,12 @@ def test_h_min_none_is_allowed_without_logh():
     tao = SteadyHeat2DTAOSolver(fwd, adj, h_min=None, use_logh=False)
 
     assert tao.lb.min()[1] == pytest.approx(0.0)
+
+
+def test_plotting_noisy_field_without_noise_points_at_add_noise():
+    """The assertion must name the method that actually produces T_obs."""
+    fwd = SteadyHeat2DForwardSolver(nmesh=4, h=lambda x: 1.0 + x[0], q=1.0)
+    fwd.solve()
+
+    with pytest.raises(AssertionError, match="add_noise"):
+        fwd.plot_output_temperature(noiseless=False)

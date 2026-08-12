@@ -209,7 +209,9 @@ class SteadyHeat2DForwardSolver:
             assert hasattr(self, "T"), "No solution available. Call solve() first."
             vals = self.T.x.array[: self.mesh.geometry.x.shape[0]] - zero_point
         else:
-            assert hasattr(self, "T_obs"), "No solution available. Call solve() first."
+            assert hasattr(
+                self, "T_obs"
+            ), "No noisy observation available. Call add_noise() first."
             vals = self.T_obs.x.array[: self.mesh.geometry.x.shape[0]] - zero_point
         if zero_point != 0.0:
             print(
