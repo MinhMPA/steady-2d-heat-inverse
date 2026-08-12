@@ -26,6 +26,7 @@ class SteadyHeat2DForwardSolver:
     r"""
     Forward solver for the steady-state Poisson heat equation on a 2D unit square:
         \nabla\cdot(h\nabla T) = -q .
+
     Dirichlet boundary condition on the bottom wall: T(y=0)=300K.
     Neumann boundary conditions on the other three insulated walls: \nabla T\cdot\hat{n}=0.
     """

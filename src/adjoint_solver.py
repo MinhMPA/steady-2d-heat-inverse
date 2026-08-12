@@ -1,3 +1,6 @@
+# type imports
+from typing import Union
+
 # numerical imports
 import numpy as np
 
@@ -20,15 +23,21 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
     r"""
     Adjoint solver for the adjoint equation of the steady-state Poisson heat equation on a 2D unit square:
         \nabla\cdot(h \nabla\lambda_L) = - (\partial J / \partial T) = - \int_\Omega [T(h) - T_obs]/\sigma^2,
+
     where \int_\Omega = \sum_x \sum_y.
+
     J is the objective function:
         J[T(h), h] = 0.5 * [ \int_\Omega [T(h) - T_obs]^2/\sigma^2 + \alpha * \int_\Omega (\nabla h)^2 ],
+
     with \sigma^2 being the variance of the sensor/measurement Gaussian noise.
     The Tikhonov regularization term \alpha * \int_\Omega (\nabla h)^2 ensures smoothness of the solution h.
+
     \lambda_L is the Lagrangian multiplier:
         L = J + lambda_L^T*g[T(h), h],
+
     with g[T(h), h] being the residual of the steady-state Poisson heat equation:
         g[T(h), h] = -\nabla\cdot(h\nabla T) - q,
+
     Dirichlet boundary condition on the bottom wall: lambda_L(y=0)=0.
     Neumann boundary conditions on the other three insulated walls: \nabla\lambda_L\cdot\hat{n}=0.
     """
@@ -36,7 +45,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
     def __init__(
         self,
         forward: SteadyHeat2DForwardSolver,
-        T_obs: fem.Function or array - like,
+        T_obs: Union[fem.Function, np.ndarray],
         sigma: float = 1.0,
         alpha: float = 0.0,
         DBC_value: float = 0.0,

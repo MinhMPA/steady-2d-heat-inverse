@@ -23,6 +23,7 @@ class SteadyHeat2DTAOSolver:
     r"""
     Wrapper for PETSc.TAO quadratic solver to minimize the objective function:
         J[T(h), h] = 0.5 * [ \int_\Omega [T(h) - T_obs]^2/\sigma^2 + \alpha * \int_\Omega (\nabla h)^2 ],
+
     w.r.t. the unknown thermal conductivity h(x,y), subjected to the positivity bound h \geq h_min.
     """
 
