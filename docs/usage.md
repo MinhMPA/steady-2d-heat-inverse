@@ -37,6 +37,7 @@ T = fwd.solve()
 | `q` | `1.0` | heat source, same accepted types as `h` |
 | `DBC_value` | `300.0` | $T(y{=}0)$ in Kelvin |
 | `petsc_opts` | `None` | merged **over** `{"ksp_type": "cg", "pc_type": "hypre", "ksp_rtol": 1e-10}` |
+| `tab_interpolator` | `"rbf"` | `"rbf"` or `"ct"`; only affects tabulated `h`/`q` input |
 
 A direct solver is a drop-in alternative when the problem is small — the matrix is SPD, so
 Cholesky is the right factorization:
@@ -63,16 +64,25 @@ something UFL can treat as a coefficient:
 | `dolfinx.fem.Expression` | `fem.Function` | interpolated onto `V` |
 | `callable(x)` | `fem.Constant` or `fem.Function` | called on `ufl.SpatialCoordinate`; a callable returning a plain scalar collapses to a `Constant` |
 | `numpy.ndarray` of shape `(N, 3)` | `fem.Function` | columns `[x, y, value]`, interpolated with `scipy.interpolate.RBFInterpolator` (cubic kernel, degree-1 polynomial tail) |
+| `pandas.DataFrame` with `x`, `y`, `value` columns | `fem.Function` | column names are matched case-insensitively; a missing column raises `ValueError` |
 
 Anything else raises `TypeError`.
 
-:::{warning}
-A `pandas.DataFrame` input is nominally accepted but the parsing branch in
-`BaseDomainCoefficient._parse_tab` indexes the frame by integer position rather than by
-column name, so it raises `KeyError` for a real `(x|y|value)` frame. Use the `(N, 3)`
-ndarray form. Likewise, the `tab_interpolator` keyword is currently inert — it is assigned
-*after* `_build()` has already run and is never read; tabulated input always goes through
-`RBFInterpolator`.
+:::{note}
+Tabulated input is interpolated in **physical** coordinates, so build the grid on
+$[0,1]^2$ — not on integer indices.
+
+`tab_interpolator` selects the scheme, on either the coefficient classes or the forward
+solver:
+
+| Value | Interpolator | Trade-off |
+|---|---|---|
+| `"rbf"` (default) | `scipy.interpolate.RBFInterpolator`, cubic kernel, degree-1 tail | extrapolates outside the convex hull; memory ~ $O(N^2)$ |
+| `"ct"` | `scipy.interpolate.CloughTocher2DInterpolator`, rescaled | 2D only, no extrapolation (falls back to the mean); memory ~ $O(N\log N)$ |
+
+```python
+fwd = SteadyHeat2DForwardSolver(nmesh=128, h=h_table, q=1.0, tab_interpolator="ct")
+```
 :::
 
 ## Adding noise and exporting
@@ -192,8 +202,9 @@ Convergence can be inspected via `tao.tao.getConvergedReason()`
 :::{warning}
 **The initial `h` must be a `fem.Function`, not a `fem.Constant`.** TAO optimizes the DOF
 vector of `fwd.h.function`, so a scalar initial guess (`h=4.0`) — which becomes a
-`fem.Constant` with no DOFs, see [Coefficient inputs](#coefficient-inputs) — fails with
-`AttributeError: 'Constant' object has no attribute 'function_space'`.
+`fem.Constant` with no DOFs, see [Coefficient inputs](#coefficient-inputs) — is rejected
+with a `TypeError`. It cannot be promoted automatically: the forward and adjoint UFL forms
+capture the coefficient by handle when they are built.
 
 Use a callable, or a tabulated `(N,3)` array for a genuinely flat guess:
 
@@ -210,9 +221,8 @@ grid on $[0,1]^2$ — not on integer indices.
 :::
 
 :::{note}
-`h_min=None` is accepted by the type hint but raises `TypeError` under `use_logh=True`,
-because the constructor compares `h_min <= 0.0` before the `None` check in
-`_set_tao_bounds_on_logh` can run. Pass an explicit positive float.
+`h_min=None` means "no lower bound" and is accepted when `use_logh=False`, where it maps
+to `0.0`. Under `use_logh=True` it raises `ValueError`, since `log(None)` is undefined.
 :::
 
 ## Running in parallel

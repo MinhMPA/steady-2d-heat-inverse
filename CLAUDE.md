@@ -122,30 +122,17 @@ every push) and `run-gradchecks.yml` (micromamba + `pytest -m gradcheck`, on `sr
   constant-Dirichlet edge and Neumann elsewhere, a constant field lies in the kernel of
   `∇·(h∇·)`, so `λ₃₀₀ = λ₀ + 300` and the gradient — which only sees `∇λ` — is unchanged.
   It would silently break if the Dirichlet data became non-constant or a second Dirichlet
-  edge were added. Prefer `DBC_value=0.0` (as `test_grad_forwarddiff.py:78` does).
-- **`domain_coefficient.py` tabulated input.** `_parse_tab`'s DataFrame branch indexes by
-  integer position (`tab[cols.index("x")]`) instead of by column name, so a real
-  `(x|y|value)` frame raises `KeyError`, not the caught `ValueError`. Only the `(N,3)`
-  `np.ndarray` path works. Related: the `tab_interpolator` kwarg is dead — it is assigned
-  *after* `_build()` has already run and is never read; `RBFInterpolator` is hard-coded
-  and the `CloughTocher2DInterpolator` alternative is commented out.
-- **TAO requires a `fem.Function` `h`.** `tao_solver.py:74` reads
-  `fwd.h.function.function_space`, so a scalar/`fem.Constant` initial guess (`h=4.0`)
-  dies with `AttributeError: 'Constant' object has no attribute 'function_space'`. The
-  initial guess must be a callable or a tabulated `(N,3)` array. Note also that tabulated
-  points are interpolated in *physical* coordinates — `InverseSolve.ipynb` builds its grid
-  from integer indices (`np.arange(nmesh)`), which only survives because its initial guess
-  is constant and RBF extrapolates a constant exactly.
-- **`tao_solver.py:71`**: `h_min=None` is allowed by the type hint but raises `TypeError`
-  under `use_logh=True`, because `h_min <= 0.0` is evaluated before the `None` check in
-  `_set_tao_bounds_on_logh`.
-- **`forward_solver.py:207`**: the `T_obs` assertion message says "Call solve() first";
-  it should say `add_noise()`.
+  edge were added. The gradient tests now all pass `DBC_value=0.0`; `InverseSolve.ipynb`
+  still passes `300`.
+- **`InverseSolve.ipynb` tabulated grid.** It builds the initial guess from integer
+  indices (`np.arange(nmesh)`) rather than physical `[0,1]²` coordinates. This survives
+  only because the guess is constant and RBF extrapolates a constant exactly; any
+  spatially-varying tabulated guess built this way would be silently wrong.
 - **Branch state (2026-08-12)**: `mf_optimization` has zero commits over `master`; the name
   points at planned multi-fidelity optimization work that has not started. Live uncommitted
   work is `notebooks/EvaluateSolution.ipynb` — a σ×α regularization sweep over the
   `hsol_sigma*_alpha*.npy` grid with a Fourier transfer-function `T(k)` analysis and
-  reconstruction-error histograms — plus the new `docs/` tree and the README rewrite.
+  reconstruction-error histograms.
 
 ## Documentation
 
