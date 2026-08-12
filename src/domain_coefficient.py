@@ -144,12 +144,13 @@ class BaseDomainCoefficient(ABC):
         if isinstance(tab, pd.DataFrame):
             cols = [c.lower() for c in tab.columns]
             try:
-                pts = np.column_stack(
-                    [tab[cols.index("x")].values, tab[cols.index("y")].values]
-                )
-                vals = tab[cols.index("value")].values
+                x_col = tab.columns[cols.index("x")]
+                y_col = tab.columns[cols.index("y")]
+                value_col = tab.columns[cols.index("value")]
             except ValueError:
                 raise ValueError("pd.DataFrame format must be (x|y|value).")
+            pts = np.column_stack([tab[x_col].values, tab[y_col].values])
+            vals = tab[value_col].values
         elif isinstance(tab, np.ndarray):
             if tab.shape[-1] != 3:
                 raise ValueError("np.ndarray format must be (N,[x,y,value]).")

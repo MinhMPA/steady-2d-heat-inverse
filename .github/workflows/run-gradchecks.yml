@@ -1,4 +1,4 @@
-name: Run gradient tests
+name: Run tests
 on:
   push:
     paths: ["src/**", "tests/**", "pyproject.toml", "environment.yml"]
@@ -28,6 +28,6 @@ jobs:
         shell: bash -l {0}
         run: pip install -e ".[dev]"
 
-      - name: Run gradcheck tests
+      - name: Run test suite
         shell: bash -l {0}
-        run: pytest -q -m "gradcheck" --maxfail=1 --durations=10
+        run: pytest -q --maxfail=1 --durations=10
