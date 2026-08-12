@@ -78,7 +78,7 @@ class SteadyHeat2DTAOSolver:
                 "Pass a callable or a tabulated (N,3) array as `h` to the forward solver."
             )
         if self.use_logh:
-            if h_min <= 0.0:
+            if h_min is None or h_min <= 0.0:
                 raise ValueError("h_min must be positive to define log(h_min).")
             self.m = fem.Function(self.fwd.h.function.function_space)
             self.m.x.array[:] = np.log(

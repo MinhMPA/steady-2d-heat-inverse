@@ -1,6 +1,5 @@
 # tests/test_solver_validation.py
 # numerical imports
-import numpy as np
 import pytest
 
 # dolfinx imports
@@ -40,3 +39,20 @@ def test_callable_h_is_accepted():
 
     assert isinstance(fwd.h.function, fem.Function)
     assert tao.use_logh is True
+
+
+def test_h_min_none_under_logh_raises_valueerror():
+    """log(None) is meaningless -- reject it with the same ValueError as h_min <= 0."""
+    fwd, adj = _solver_pair(lambda x: 2.0 + 3.0 * x[0] ** 2)
+
+    with pytest.raises(ValueError, match="h_min must be positive"):
+        SteadyHeat2DTAOSolver(fwd, adj, h_min=None, use_logh=True)
+
+
+def test_h_min_none_is_allowed_without_logh():
+    """Optimizing directly in h, a None lower bound simply means 0.0."""
+    fwd, adj = _solver_pair(lambda x: 2.0 + 3.0 * x[0] ** 2)
+
+    tao = SteadyHeat2DTAOSolver(fwd, adj, h_min=None, use_logh=False)
+
+    assert tao.lb.min()[1] == pytest.approx(0.0)
