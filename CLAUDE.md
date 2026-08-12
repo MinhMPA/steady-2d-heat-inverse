@@ -130,9 +130,10 @@ changes).
   indices (`np.arange(nmesh)`) rather than physical `[0,1]²` coordinates. This survives
   only because the guess is constant and RBF extrapolates a constant exactly; any
   spatially-varying tabulated guess built this way would be silently wrong.
-- **Branch state (2026-08-12)**: `mf_optimization` has zero commits over `master`; the name
-  points at planned multi-fidelity optimization work that has not started. Live uncommitted
-  work is `notebooks/EvaluateSolution.ipynb` — a σ×α regularization sweep over the
+- **Branch state (2026-08-12)**: `mf_optimization` carries the Sphinx docs tree, a README
+  rewrite, and a six-defect fix wave (10 commits over `master`). The multi-fidelity
+  optimization work the branch is named for has not started. Live uncommitted work is
+  `notebooks/EvaluateSolution.ipynb` — a σ×α regularization sweep over the
   `hsol_sigma*_alpha*.npy` grid with a Fourier transfer-function `T(k)` analysis and
   reconstruction-error histograms.
 
