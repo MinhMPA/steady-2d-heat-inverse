@@ -68,6 +68,15 @@ class SteadyHeat2DTAOSolver:
         self.sigma2 = adjoint.sigma2
         self.use_logh = use_logh
         self.verbose = verbose
+        # TAO optimizes the DOF vector of h, so h must carry DOFs. A scalar or
+        # fem.Constant h cannot be promoted here: the forward and adjoint UFL forms
+        # already reference the original object by handle.
+        if not isinstance(self.fwd.h.function, fem.Function):
+            raise TypeError(
+                "Thermal conductivity h must be a fem.Function to be optimized: TAO "
+                "optimizes its DOF vector, and a scalar or fem.Constant h has no DOFs. "
+                "Pass a callable or a tabulated (N,3) array as `h` to the forward solver."
+            )
         if self.use_logh:
             if h_min <= 0.0:
                 raise ValueError("h_min must be positive to define log(h_min).")
