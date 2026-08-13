@@ -6,6 +6,9 @@ the inverse problem's target and makes stored results incomparable.
 
 Usage:
     python scripts/make_fixture.py --seed 0 --sigma 1e-3 --nmesh 128
+
+Single-process only: run without mpirun. The recorded digest covers rank 0's
+local DOF partition, and the observation generator is not multi-rank safe.
 """
 
 # type imports
@@ -40,6 +43,14 @@ def main():
         "--out", type=Path, default=Path("test_data/blackbox_output.xdmf")
     )
     args = parser.parse_args()
+
+    if MPI.COMM_WORLD.size > 1:
+        raise SystemExit(
+            "make_fixture.py is single-process only. The recorded digest hashes "
+            "rank 0's local DOF partition rather than the assembled global field, "
+            "so a multi-rank run would certify a fixture it does not describe. "
+            "Re-run without mpirun."
+        )
 
     fwd = SteadyHeat2DForwardSolver(
         nmesh=args.nmesh,
