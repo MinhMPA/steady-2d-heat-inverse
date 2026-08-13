@@ -10,6 +10,8 @@
 
 ## Global Constraints
 
+- **Run every command in the new environment, from Task 1 Step 3 onward.** `conda activate` does not persist between shell invocations in this harness — each command starts a fresh shell that auto-activates the *old* `steady-2d-heat-inverse_py313forge` (DOLFINx 0.9.0). Prefix commands with `conda run -n s2dhi-011 ...`, or you will verify against 0.9.0 while believing you are on 0.11. This applies to every `pytest`, `python`, `black`, and `sphinx-build` invocation in Tasks 2–6, whose command blocks are written without the prefix for readability.
+- **The core environment has no `pyvista`.** It is an optional extra (`pip install -e ".[plot]"`), because pyvista/vtk conflict with fenics-dolfinx 0.11 on `libboost`. Task 1 installs `[dev,plot]` locally so the suite can run before Task 2 makes the import lazy; CI installs only `[dev]`, which is what proves the compute path is genuinely plotting-free.
 - **Import convention:** sources install as *flat top-level modules* (`pyproject.toml` `py-modules`). Always `from forward_solver import ...`, never `from src.forward_solver import ...`.
 - **Test imports:** `tests/` is a package (`tests/__init__.py` exists). Import shared helpers relatively (`from ._helpers import ...`); import code under test flatly.
 - **Formatting:** `black`. Run `black src tests scripts` before each commit.
@@ -73,6 +75,10 @@ Expected: `0.9.0 3.23.5 4.1.0` (or whatever your machine reports — record it).
 
 - [ ] **Step 2: Write the pinned environment file**
 
+The core environment is **compute-only**: `pyvista` and `vtk` are deliberately absent.
+
+This is not an oversight. `pyvista 0.45`/`vtk 9.4` cannot co-exist with `fenics-dolfinx 0.11` — they conflict on `libboost`, and the solver only succeeds if they float to `0.48.4`/`9.6.2`. Rather than drag a two-minor-version plotting upgrade into every compute environment and every CI job, rendering becomes an optional extra (Step 2b). Task 2 makes the `pyvista` import lazy, so the library is fully usable without it.
+
 Replace `environment.yml` entirely:
 
 ```yaml
@@ -82,42 +88,60 @@ channels:
 dependencies:
   - python=3.12.*
   - numpy=2.*
-  - scipy=1.16.*
+  - scipy=1.*
   - pandas=2.*
   - mpi4py=4.*
-  - petsc4py=3.23.*
+  - petsc4py=3.25.*
   - fenics-basix=0.11.*
-  - fenics-ufl=2025.*
+  - fenics-ufl=2026.1.*
   - fenics-dolfinx=0.11.*
-  - pyvista=0.45.*
-  - vtk=9.4.*
   - h5py=3.*
   - jupyterlab
   - pip:
       - -e .
 ```
 
-Python is pinned to 3.12 rather than 3.13 because conda-forge's DOLFINx 0.11 builds are most complete there; if solving fails in Step 3, try `python=3.13.*`.
+These pins are **verified to solve** on conda-forge/osx-arm64 via `mamba create --dry-run`. Do not substitute `fenics-ufl=2025.*` or `petsc4py=3.23.*` — those are the 0.9.0-era versions and will fail with `fenics-dolfinx 0.11 requires fenics-ufl =2026.1`.
+
+- [ ] **Step 2b: Declare plotting as an optional extra**
+
+In `pyproject.toml`, extend the optional dependencies:
+
+```toml
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-xdist>=3.5",
+]
+plot = [
+  "pyvista>=0.48",
+]
+```
+
+Anyone who wants figures installs `pip install -e ".[plot]"`; note that doing so inside a DOLFINx 0.11 environment will resolve `vtk` to 9.6.x, which is expected.
 
 - [ ] **Step 3: Build the new environment under a different name**
 
 Do **not** overwrite your working environment — build alongside it so rollback is trivial:
 
+Use `mamba`, not `conda` — a conda solve of the full FEniCSx stack is slow enough to risk a command timeout:
+
 ```bash
-conda env create -n s2dhi-011 -f environment.yml
-conda activate s2dhi-011
-pip install -e ".[dev]"
-python -c "import dolfinx; print('dolfinx', dolfinx.__version__)"
+mamba env create -n s2dhi-011 -f environment.yml
+conda run -n s2dhi-011 pip install -e ".[dev]"
+conda run -n s2dhi-011 python -c "import dolfinx; print('dolfinx', dolfinx.__version__)"
 ```
 
-Expected: `dolfinx 0.11.x`.
+Expected: `dolfinx 0.11.0`.
 
-If conda cannot solve the spec, report BLOCKED with the solver output rather than loosening pins silently — an unpinned environment is the bug being fixed.
+**`conda activate` does not persist between shell invocations here** — each command starts a fresh shell that auto-activates the *old* environment. Prefix every subsequent command with `conda run -n s2dhi-011`, or you will silently verify against DOLFINx 0.9.0 and believe you are on 0.11.
+
+If mamba cannot solve the spec, report BLOCKED with the solver output rather than loosening pins silently — an unpinned environment is the bug being fixed. (The pins in Step 2 have already been dry-run verified, so a failure here means something changed upstream and is worth surfacing.)
 
 - [ ] **Step 4: Confirm the API break is real before fixing it**
 
 ```bash
-python -c "
+conda run -n s2dhi-011 python -c "
 import sys; sys.path.insert(0,'src')
 from forward_solver import SteadyHeat2DForwardSolver
 SteadyHeat2DForwardSolver(nmesh=4, h=1.0, q=1.0)
@@ -125,6 +149,8 @@ SteadyHeat2DForwardSolver(nmesh=4, h=1.0, q=1.0)
 ```
 
 Expected: `TypeError` naming `petsc_options_prefix` as a missing required argument. This is the RED state.
+
+Two things this step also proves incidentally: that the module imports at all with no `pyvista` installed (Task 2 makes that robust; here it may still fail, which is fine and expected at this point), and that you are genuinely running against 0.11. If you instead see the solver construct successfully, you are in the wrong environment — check the `conda run` prefix.
 
 - [ ] **Step 5: Add the prefix to the forward solver**
 
@@ -162,17 +188,26 @@ The two prefixes must differ — PETSc uses them to namespace options, and a col
 
 - [ ] **Step 7: Verify construction and the full suite**
 
+**Install the plotting extra for this step.** Until Task 2 makes the import lazy, `plotting_utils` imports `pyvista` at module scope, and `forward_solver` and `domain_coefficient` both import from it — so with no `pyvista` present, *every* test fails at collection. Task 2 removes this requirement; CI (Task 6) will install only `[dev]`.
+
 ```bash
-python -c "
+conda run -n s2dhi-011 pip install -e ".[dev,plot]"
+conda run -n s2dhi-011 python -c "
 import sys; sys.path.insert(0,'src')
 from forward_solver import SteadyHeat2DForwardSolver
 f = SteadyHeat2DForwardSolver(nmesh=4, h=1.0, q=1.0); f.solve()
 print('construct+solve OK')
 "
-pytest -q
+conda run -n s2dhi-011 pytest -q
 ```
 
 Expected: `construct+solve OK`, then `16 passed`.
+
+Record the resolved `pyvista` and `vtk` versions — they will be 0.48.x and 9.6.x, and Task 2's plotting check needs to know rendering still works on them:
+
+```bash
+conda run -n s2dhi-011 python -c "import pyvista, vtk; print('pyvista', pyvista.__version__, '| vtk', vtk.VTK_VERSION)"
+```
 
 If any gradient check now fails, the PETSc upgrade shifted tolerances. Report the actual numbers rather than loosening `rtol` — a genuine gradient regression and a tolerance shift look identical from the assertion alone, and only the numbers distinguish them.
 
@@ -180,8 +215,8 @@ If any gradient check now fails, the PETSc upgrade shifted tolerances. Report th
 
 ```bash
 black src
-git add environment.yml src/forward_solver.py src/adjoint_solver.py
-git commit -m "Pin the conda stack and migrate to DOLFINx 0.11"
+git add environment.yml pyproject.toml src/forward_solver.py src/adjoint_solver.py
+git commit -m "Pin a compute-only DOLFINx 0.11 stack and make plotting an extra"
 ```
 
 ---
@@ -289,11 +324,21 @@ Then, as the first statement inside the function body — after the docstring an
 
 ```python
     # Imported lazily so that compute-only paths stay importable without VTK.
-    import pyvista as pv
+    # `pyvista` is an optional extra: `pip install -e ".[plot]"`.
+    try:
+        import pyvista as pv
+    except ImportError as exc:  # pragma: no cover - depends on the install extras
+        raise ImportError(
+            "Plotting requires the optional 'plot' extra, which is deliberately "
+            "absent from the compute environment because pyvista/vtk conflict with "
+            "fenics-dolfinx 0.11. Install it with: pip install -e \".[plot]\""
+        ) from exc
 
     if MPI.COMM_WORLD.rank != 0:
         return
 ```
+
+The wrapped `ImportError` matters: without it, a user who never installed the extra gets a bare `ModuleNotFoundError: No module named 'pyvista'` from deep inside a plotting helper, with no hint that the fix is an install extra rather than a broken environment.
 
 Leave the rest of the function unchanged. Remove the now-unused `Sequence` import if present.
 
