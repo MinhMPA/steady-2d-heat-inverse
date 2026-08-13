@@ -37,3 +37,30 @@ def test_forward_solver_constructs_and_solves():
 
     assert np.isfinite(T.x.array).all()
     assert T.x.array.size > 0
+
+
+def test_unconverged_solve_raises():
+    """A KSP that cannot converge must raise, not return a wrong answer."""
+    sys.path.insert(0, "src")
+    from forward_solver import SteadyHeat2DForwardSolver
+
+    # One iteration at an unreachable tolerance: convergence is impossible.
+    fwd = SteadyHeat2DForwardSolver(
+        nmesh=8,
+        h=lambda x: 1.0 + x[0],
+        q=1.0,
+        petsc_opts={"ksp_max_it": 1, "ksp_rtol": 1e-14, "pc_type": "none"},
+    )
+
+    with pytest.raises(Exception) as excinfo:
+        fwd.solve()
+
+    assert "converge" in str(excinfo.value).lower() or "DIVERGED" in str(excinfo.value)
+
+
+def test_default_options_enable_convergence_errors():
+    sys.path.insert(0, "src")
+    from forward_solver import SteadyHeat2DForwardSolver
+
+    fwd = SteadyHeat2DForwardSolver(nmesh=4, h=1.0, q=1.0)
+    assert fwd.petsc_opts["ksp_error_if_not_converged"] is True

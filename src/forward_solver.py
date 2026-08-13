@@ -99,7 +99,14 @@ class SteadyHeat2DForwardSolver:
 
         # Specify options for the PETSc KSP linear system solver.
         ## Default options are set to use the conjugate gradient method with hypre preconditioner.
-        default_opts = {"ksp_type": "cg", "pc_type": "hypre", "ksp_rtol": 1e-10}
+        ## `ksp_error_if_not_converged` makes a failed solve raise instead of silently
+        ## returning an unconverged state into the objective and gradient.
+        default_opts = {
+            "ksp_type": "cg",
+            "pc_type": "hypre",
+            "ksp_rtol": 1e-10,
+            "ksp_error_if_not_converged": True,
+        }
         self.petsc_opts = default_opts | (petsc_opts or {})
 
         # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs.
