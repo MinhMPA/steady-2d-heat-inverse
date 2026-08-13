@@ -48,3 +48,24 @@ def test_solution_is_a_copy_not_a_live_view():
     tao.tao.getSolution().set(0.0)  # scribble on TAO's vector
 
     np.testing.assert_allclose(sol, before, rtol=0.0, atol=0.0)
+
+
+def test_direct_h_parametrization_postconditions():
+    """The aliasing bug lived here: without use_logh, np.exp() no longer
+    allocates a fresh array, so the returned solution would be a live view
+    into TAO's vector."""
+    fwd, adj = _solved_pair()
+    tao = SteadyHeat2DTAOSolver(
+        fwd, adj, use_logh=False, h_min=1e-6, gatol=1e-8, grtol=1e-8, mit=20
+    )
+
+    sol = tao.solve()
+
+    # Check the re-sync BEFORE perturbing anything (see the note below).
+    np.testing.assert_allclose(
+        fwd.h.function.x.array[: sol.size], sol, rtol=1e-12, atol=0.0
+    )
+
+    before = sol.copy()
+    tao.tao.getSolution().set(0.0)
+    np.testing.assert_allclose(sol, before, rtol=0.0, atol=0.0)
