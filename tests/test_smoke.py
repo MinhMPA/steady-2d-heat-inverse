@@ -16,12 +16,22 @@ def test_importing_forward_solver_does_not_import_pyvista():
     code = (
         "import sys; sys.path.insert(0, 'src');"
         "import forward_solver;"
-        "print('pyvista' in sys.modules)"
+        "print('PYVISTA_IMPORTED=' + str('pyvista' in sys.modules))"
     )
     out = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
-    assert out.stdout.strip() == "False", (
+
+    # MPI/UCX transport layers write diagnostics to stdout on some machines
+    # (notably GitHub runners), so search for the marker rather than matching
+    # the whole stream.
+    markers = [
+        line.strip()
+        for line in out.stdout.splitlines()
+        if line.strip().startswith("PYVISTA_IMPORTED=")
+    ]
+    assert markers, f"marker not found in subprocess stdout: {out.stdout!r}"
+    assert markers[-1] == "PYVISTA_IMPORTED=False", (
         "importing forward_solver pulled in pyvista; "
         "a broken VTK would make the whole library unimportable"
     )
