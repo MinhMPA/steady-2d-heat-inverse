@@ -61,7 +61,10 @@ def test_direct_h_parametrization_postconditions():
 
     sol = tao.solve()
 
-    # Check the re-sync BEFORE perturbing anything (see the note below).
+    # Assert the re-sync BEFORE perturbing TAO's vector. Under use_logh=False,
+    # __init__ sets self.X0 = fwd.h.function.x.petsc_vec, so TAO's solution
+    # vector IS h's vector -- scribbling it below also zeroes h. Reversing these
+    # two assertions produces a spurious re-sync failure.
     np.testing.assert_allclose(
         fwd.h.function.x.array[: sol.size], sol, rtol=1e-12, atol=0.0
     )

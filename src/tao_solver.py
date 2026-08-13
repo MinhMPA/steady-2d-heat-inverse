@@ -279,6 +279,9 @@ class SteadyHeat2DTAOSolver:
         # coefficient is not necessarily the optimum. Write the optimum back before
         # returning, so export/plot/re-solve all see the converged h.
         X_opt = self.tao.getSolution()
+        # _update_h reads through localForm(), which spans ghosts, so sync them
+        # first — same reason _objgrad ghostUpdates before its own _update_h call.
+        X_opt.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
         self._update_h(X_opt)
 
         if self.use_logh:
