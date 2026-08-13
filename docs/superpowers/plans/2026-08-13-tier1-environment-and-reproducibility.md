@@ -38,6 +38,8 @@
 |---|---|---|
 | `environment.yml` | modify | fully pinned conda spec on DOLFINx 0.11 |
 | `src/forward_solver.py` | modify | `petsc_options_prefix`, convergence-checking PETSc defaults |
+| `src/domain_coefficient.py` | modify | 0.11: `interpolation_points` is a property, not a method |
+| `tests/_tangent_solver.py` | modify | 0.11: its own `LinearProblem` needs a `petsc_options_prefix` |
 | `src/adjoint_solver.py` | modify | `petsc_options_prefix` |
 | `src/tao_solver.py` | modify | re-sync `fwd.h.function` to the optimum after `solve()` |
 | `src/plotting_utils.py` | modify | lazy `pyvista` import |
@@ -186,6 +188,33 @@ In `src/adjoint_solver.py`, replace the `LinearProblem` construction:
 
 The two prefixes must differ — PETSc uses them to namespace options, and a collision would silently apply the forward solver's options to the adjoint.
 
+- [ ] **Step 6b: Fix the two remaining 0.11 API breaks**
+
+`LinearProblem` is not the only thing 0.11 changed. Two further call sites break, and the suite cannot reach 16 passed without them.
+
+In `src/domain_coefficient.py`, `element.interpolation_points` became a **property** returning an `ndarray`; calling it raises `TypeError: 'numpy.ndarray' object is not callable`. Drop the parentheses:
+
+```python
+                expr = fem.Expression(
+                    domain_coeff, self._V.element.interpolation_points
+                )
+```
+
+In `tests/_tangent_solver.py`, the tangent-linear solver builds its own `LinearProblem` and needs a prefix distinct from the forward and adjoint ones:
+
+```python
+        self.problem = LinearProblem(
+            self.a,
+            self.L,
+            u=self.dT,
+            bcs=self.bcs,
+            petsc_options_prefix="s2dhi_tangent_",
+            petsc_options=self.petsc_opts,
+        )
+```
+
+Keep the existing argument names for `u=` and the forms — only the prefix is added. If the local variable is not named `self.dT`, leave it as it is; do not rename anything.
+
 - [ ] **Step 7: Verify construction and the full suite**
 
 **Install the plotting extra for this step.** Until Task 2 makes the import lazy, `plotting_utils` imports `pyvista` at module scope, and `forward_solver` and `domain_coefficient` both import from it — so with no `pyvista` present, *every* test fails at collection. Task 2 removes this requirement; CI (Task 6) will install only `[dev]`.
@@ -214,8 +243,9 @@ If any gradient check now fails, the PETSc upgrade shifted tolerances. Report th
 - [ ] **Step 8: Commit**
 
 ```bash
-black src
-git add environment.yml pyproject.toml src/forward_solver.py src/adjoint_solver.py
+black src tests
+git add environment.yml pyproject.toml src/forward_solver.py src/adjoint_solver.py \
+        src/domain_coefficient.py tests/_tangent_solver.py
 git commit -m "Pin a compute-only DOLFINx 0.11 stack and make plotting an extra"
 ```
 
