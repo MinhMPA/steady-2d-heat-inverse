@@ -1,9 +1,23 @@
 name: Run tests
 on:
   push:
-    paths: ["src/**", "tests/**", "pyproject.toml", "environment.yml"]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "docs/**"
+      - "pyproject.toml"
+      - "environment.yml"
+      - ".github/workflows/**"
   pull_request:
-    paths: ["src/**", "tests/**", "pyproject.toml", "environment.yml"]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "docs/**"
+      - "pyproject.toml"
+      - "environment.yml"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 jobs:
@@ -31,3 +45,17 @@ jobs:
       - name: Run test suite
         shell: bash -l {0}
         run: pytest -q --maxfail=1 --durations=10
+
+  docs:
+    name: Build documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install documentation toolchain
+        run: pip install -r docs/requirements.txt
+      - name: Build docs with warnings as errors
+        run: sphinx-build -W --keep-going -b html docs docs/_build/html
