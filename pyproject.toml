@@ -18,6 +18,9 @@ dev = [
   "pytest>=8",
   "pytest-xdist>=3.5",
 ]
+plot = [
+  "pyvista>=0.48",
+]
 
 # For command-line scripts (if any).
 # [project.scripts]

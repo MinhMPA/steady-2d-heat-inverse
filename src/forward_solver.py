@@ -105,7 +105,12 @@ class SteadyHeat2DForwardSolver:
         # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs.
         self.T = fem.Function(self.V, name="Temperature")
         self.problem = LinearProblem(
-            self.a, self.L, u=self.T, bcs=self.bcs, petsc_options=self.petsc_opts
+            self.a,
+            self.L,
+            u=self.T,
+            bcs=self.bcs,
+            petsc_options_prefix="s2dhi_fwd_",
+            petsc_options=self.petsc_opts,
         )
 
     # Main driver method to solve the steady-state heat equation as a linear variational problem.

@@ -91,7 +91,7 @@ class BaseDomainCoefficient(ABC):
             else:
                 self.constant = False
                 expr = fem.Expression(
-                    domain_coeff, self._V.element.interpolation_points()
+                    domain_coeff, self._V.element.interpolation_points
                 )
                 f = fem.Function(self._V)
                 f.interpolate(expr)
