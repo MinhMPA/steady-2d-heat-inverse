@@ -266,7 +266,7 @@ class SteadyHeat2DTAOSolver:
 
         Returns
         -------
-        PETSc.vec : the solution vector for thermal conductivity h(x,y).
+        numpy.ndarray : the solution vector for thermal conductivity h(x,y).
         """
         self.tao.solve(x=self.X0)
         if self.verbose > 0:
@@ -274,8 +274,15 @@ class SteadyHeat2DTAOSolver:
             print(
                 "For more details, refer to https://petsc.org/release/manualpages/Tao/TaoConvergedReason/"
             )
+
+        # TAO's last callback may have been a rejected trial point, so the shared
+        # coefficient is not necessarily the optimum. Write the optimum back before
+        # returning, so export/plot/re-solve all see the converged h.
+        X_opt = self.tao.getSolution()
+        self._update_h(X_opt)
+
         if self.use_logh:
-            self.solution = np.exp(self.tao.getSolution().array)
+            self.solution = np.exp(X_opt.array.copy())
         else:
-            self.solution = self.tao.getSolution().array
+            self.solution = X_opt.array.copy()
         return self.solution
