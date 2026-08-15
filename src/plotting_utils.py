@@ -1,8 +1,14 @@
+# numerical imports
 import numpy as np
+
+# mpi imports
 from mpi4py import MPI
-import pyvista as pv
+
+# dolfinx imports
 from dolfinx.plot import vtk_mesh
-from typing import Any, Sequence
+
+# type imports
+from typing import Any
 from numpy.typing import ArrayLike
 
 
@@ -30,6 +36,17 @@ def plot_scalar_mesh(
     n_labels: number of tick labels on the color bar.
     user_scalar_bar: user-defined additional arguments for the scalar bar.
     """
+    # Imported lazily so that compute-only paths stay importable without VTK.
+    # `pyvista` is an optional extra: `pip install -e ".[plot]"`.
+    try:
+        import pyvista as pv
+    except ImportError as exc:  # pragma: no cover - depends on the install extras
+        raise ImportError(
+            "Plotting requires the optional 'plot' extra, which is deliberately "
+            "absent from the compute environment because pyvista/vtk conflict with "
+            'fenics-dolfinx 0.11. Install it with: pip install -e ".[plot]"'
+        ) from exc
+
     if MPI.COMM_WORLD.rank != 0:
         return
 

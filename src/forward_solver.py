@@ -26,6 +26,7 @@ class SteadyHeat2DForwardSolver:
     r"""
     Forward solver for the steady-state Poisson heat equation on a 2D unit square:
         \nabla\cdot(h\nabla T) = -q .
+
     Dirichlet boundary condition on the bottom wall: T(y=0)=300K.
     Neumann boundary conditions on the other three insulated walls: \nabla T\cdot\hat{n}=0.
     """
@@ -38,6 +39,7 @@ class SteadyHeat2DForwardSolver:
         q: Union[float, fem.Constant, fem.Expression, Callable] = 1.0,
         DBC_value: float = 300.0,
         petsc_opts: dict = None,
+        tab_interpolator: str = "rbf",
     ):
         """
         Parameters
@@ -49,6 +51,7 @@ class SteadyHeat2DForwardSolver:
         q          : heat source, same allowed types as h.
         DBC_value  : Dirichlet BC for T at the bottom, i.e. T(y=0)=T0.
         petsc_opts : Dictionary of PETSc options.
+        tab_interpolator : interpolation scheme for tabulated h/q input, "rbf" or "ct".
         """
         # Define the problem domain, discretized on a unit square mesh. Two mesh types are supported: 'quadrilateral' and 'triangle'.
         if mesh_type not in ["quadrilateral", "triangle"]:
@@ -68,8 +71,10 @@ class SteadyHeat2DForwardSolver:
         self.V = fem.functionspace(self.mesh, ("Lagrange", 1))
 
         # Define thermal conductivity and heat source as domain coefficients.
-        self.h = ThermalConductivity(h, self.mesh, self.V)
-        self.q = HeatSource(q, self.mesh, self.V)
+        self.h = ThermalConductivity(
+            h, self.mesh, self.V, tab_interpolator=tab_interpolator
+        )
+        self.q = HeatSource(q, self.mesh, self.V, tab_interpolator=tab_interpolator)
 
         # Define domain boundary conditions:
         ## 1) Dirichlet BC at the bottom.
@@ -94,13 +99,25 @@ class SteadyHeat2DForwardSolver:
 
         # Specify options for the PETSc KSP linear system solver.
         ## Default options are set to use the conjugate gradient method with hypre preconditioner.
-        default_opts = {"ksp_type": "cg", "pc_type": "hypre", "ksp_rtol": 1e-10}
+        ## `ksp_error_if_not_converged` makes a failed solve raise instead of silently
+        ## returning an unconverged state into the objective and gradient.
+        default_opts = {
+            "ksp_type": "cg",
+            "pc_type": "hypre",
+            "ksp_rtol": 1e-10,
+            "ksp_error_if_not_converged": True,
+        }
         self.petsc_opts = default_opts | (petsc_opts or {})
 
         # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs.
         self.T = fem.Function(self.V, name="Temperature")
         self.problem = LinearProblem(
-            self.a, self.L, u=self.T, bcs=self.bcs, petsc_options=self.petsc_opts
+            self.a,
+            self.L,
+            u=self.T,
+            bcs=self.bcs,
+            petsc_options_prefix="s2dhi_fwd_",
+            petsc_options=self.petsc_opts,
         )
 
     def get_ksp_tolerances(self) -> tuple[float, float, float, int]:
@@ -243,10 +260,14 @@ class SteadyHeat2DForwardSolver:
         **kwargs   : additional keyword arguments, see `plotting_utils.plot_scalar_mesh()` for details.
         """
         if noiseless:
-            assert hasattr(self, "T"), "No solution available. Call solve() first."
+            if not hasattr(self, "T"):
+                raise RuntimeError("No solution available. Call solve() first.")
             vals = self.T.x.array[: self.mesh.geometry.x.shape[0]] - zero_point
         else:
-            assert hasattr(self, "T_obs"), "No solution available. Call solve() first."
+            if not hasattr(self, "T_obs"):
+                raise RuntimeError(
+                    "No noisy observation available. Call add_noise() first."
+                )
             vals = self.T_obs.x.array[: self.mesh.geometry.x.shape[0]] - zero_point
         if zero_point != 0.0:
             print(

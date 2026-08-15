@@ -27,6 +27,7 @@ class SteadyHeat2DTAOSolver:
     r"""
     Wrapper for PETSc.TAO quadratic solver to minimize the objective function:
         J[T(h), h] = 0.5 * [ \int_\Omega [T(h) - T_obs]^2/\sigma^2 + \alpha * \int_\Omega (\nabla h)^2 ],
+
     w.r.t. the unknown thermal conductivity h(x,y), subjected to the positivity bound h \geq h_min.
     """
 
@@ -78,8 +79,19 @@ class SteadyHeat2DTAOSolver:
         self.verbose = verbose
         self._user_monitor = monitor
         self.ksp_rtol_controller = None
+
+        # TAO optimizes the DOF vector of h, so h must carry DOFs. A scalar or
+        # fem.Constant h cannot be promoted here: the forward and adjoint UFL forms
+        # already reference the original object by handle.
+        if not isinstance(self.fwd.h.function, fem.Function):
+            raise TypeError(
+                "Thermal conductivity h must be a fem.Function to be optimized: TAO "
+                "optimizes its DOF vector, and a scalar or fem.Constant h has no DOFs. "
+                "Pass a spatially-varying callable or a tabulated (N,3) array as `h` to the "
+                "forward solver."
+            )
         if self.use_logh:
-            if h_min <= 0.0:
+            if h_min is None or h_min <= 0.0:
                 raise ValueError("h_min must be positive to define log(h_min).")
             self.m = fem.Function(self.fwd.h.function.function_space)
             self.m.x.array[:] = np.log(
@@ -290,7 +302,7 @@ class SteadyHeat2DTAOSolver:
 
         Returns
         -------
-        PETSc.vec : the solution vector for thermal conductivity h(x,y).
+        numpy.ndarray : the solution vector for thermal conductivity h(x,y).
         """
         self.tao.solve(x=self.X0)
         if self.verbose > 0:
@@ -298,8 +310,18 @@ class SteadyHeat2DTAOSolver:
             print(
                 "For more details, refer to https://petsc.org/release/manualpages/Tao/TaoConvergedReason/"
             )
+
+        # TAO's last callback may have been a rejected trial point, so the shared
+        # coefficient is not necessarily the optimum. Write the optimum back before
+        # returning, so export/plot/re-solve all see the converged h.
+        X_opt = self.tao.getSolution()
+        # _update_h reads through localForm(), which spans ghosts, so sync them
+        # first — same reason _objgrad ghostUpdates before its own _update_h call.
+        X_opt.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        self._update_h(X_opt)
+
         if self.use_logh:
-            self.solution = np.exp(self.tao.getSolution().array)
+            self.solution = np.exp(X_opt.array.copy())
         else:
-            self.solution = self.tao.getSolution().array
+            self.solution = X_opt.array.copy()
         return self.solution

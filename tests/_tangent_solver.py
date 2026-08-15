@@ -75,7 +75,12 @@ class _SteadyHeat2DTangentSolver(SteadyHeat2DForwardSolver):
         # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs.
         self.dT = fem.Function(self.V, name="TemperatureVariation")
         self.problem = LinearProblem(
-            self.a, self.L, u=self.dT, bcs=self.bcs, petsc_options=opts
+            self.a,
+            self.L,
+            u=self.dT,
+            bcs=self.bcs,
+            petsc_options_prefix="s2dhi_tangent_",
+            petsc_options=opts,
         )
 
     def solve(self):

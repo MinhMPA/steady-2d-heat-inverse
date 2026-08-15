@@ -205,3 +205,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Sweep outputs: regenerate with scripts/run_sweep.py (see Tier 3)
+notebooks/*.npy
+notebooks/*.vtu

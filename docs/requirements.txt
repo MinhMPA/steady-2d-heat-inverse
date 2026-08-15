@@ -1,0 +1,6 @@
+# Documentation-only dependencies.
+# The scientific stack (dolfinx, petsc4py, ...) is deliberately absent: it is mocked
+# via `autodoc_mock_imports` in conf.py so the docs build without conda.
+sphinx>=7.2
+sphinx-rtd-theme>=2.0
+myst-parser>=2.0
