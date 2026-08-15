@@ -27,9 +27,25 @@ gradient driven by **PETSc TAO** bound-constrained optimization.
 | Linear algebra / optimizer | PETSc (KSP: `cg` + `hypre`) and TAO (`blmvm`, `bncg`) via petsc4py |
 | Parallelism | MPI via mpi4py (single-program, ghost-aware) |
 | Interpolation | SciPy `RBFInterpolator` / `CloughTocher2DInterpolator` |
-| Visualization / IO | PyVista, XDMF+HDF5, h5py |
-| Env / build | conda-forge (`environment.yml`) + setuptools editable install |
+| Visualization / IO | PyVista (**optional `[plot]` extra**, not in `environment.yml`), XDMF+HDF5, h5py |
+| Env / build | conda-forge (`environment.yml`, fully pinned) + setuptools editable install |
 | Tests | pytest; slow gradient tests carry a `gradcheck` marker, fast validation tests do not |
+
+**The environment is pinned to DOLFINx 0.11** (`fenics-ufl 2026.1`, `petsc4py 3.25`,
+python 3.12). Two consequences that bite if forgotten:
+
+- `LinearProblem` requires a **mandatory `petsc_options_prefix`**. Three call sites use
+  distinct prefixes — `s2dhi_fwd_`, `s2dhi_adj_`, `s2dhi_tangent_`. A collision would
+  silently apply one solver's PETSc options to another.
+- `element.interpolation_points` is a **property**, not a method. Calling it raises
+  `TypeError: 'numpy.ndarray' object is not callable`.
+
+**`pyvista`/`vtk` cannot co-exist with dolfinx 0.11** (libboost conflict), so they are
+deliberately absent from the core environment and live in the `[plot]` extra.
+`plotting_utils` therefore imports pyvista **lazily**, inside `plot_scalar_mesh()`, and
+raises a wrapped `ImportError` naming the extra. Keep it lazy: a module-scope import makes
+a *plotting* dependency able to render the entire library unimportable, which is exactly
+how CI broke.
 
 ## Layout
 
@@ -63,17 +79,24 @@ forward and adjoint UFL forms reference by handle. Loop until converged.
 ## Commands
 
 ```bash
-conda env create -n steady-2d-heat-inverse -f environment.yml
-conda activate steady-2d-heat-inverse
-pip install -e ".[dev]"
+mamba env create -n s2dhi-011 -f environment.yml   # mamba: a conda solve risks timing out
+conda activate s2dhi-011
+pip install -e ".[dev]"                            # add ,plot only if you need figures
 
-pytest -q                    # full suite (16 tests)
+pytest -q                    # full suite (23 tests)
 pytest -m gradcheck          # adjoint gradient verification only (real FEM solves)
-mpirun -n 4 python script.py # MPI-parallel run
+mpirun -n 4 python script.py # MPI-parallel run — see the open risk below
+
+python scripts/make_fixture.py --seed 0 --sigma 1e-3 --nmesh 128  # regenerate test_data/
 
 pip install -r docs/requirements.txt
 sphinx-build -W -b html docs docs/_build/html   # docs build; no conda stack needed
 ```
+
+The observation fixture is **reproducible**: `test_data/blackbox_output.meta.json` records
+the seed and a `T_obs_sha256`, and re-running the generator reproduces it exactly. Never
+regenerate it without a seed — an unseeded draw silently changes the inverse problem's
+target and makes stored results incomparable.
 
 ## Conventions
 
@@ -130,12 +153,42 @@ changes).
   indices (`np.arange(nmesh)`) rather than physical `[0,1]²` coordinates. This survives
   only because the guess is constant and RBF extrapolates a constant exactly; any
   spatially-varying tabulated guess built this way would be silently wrong.
-- **Branch state (2026-08-12)**: `mf_optimization` carries the Sphinx docs tree, a README
-  rewrite, and a six-defect fix wave (10 commits over `master`). The multi-fidelity
-  optimization work the branch is named for has not started. Live uncommitted work is
-  `notebooks/EvaluateSolution.ipynb` — a σ×α regularization sweep over the
-  `hsol_sigma*_alpha*.npy` grid with a Fourier transfer-function `T(k)` analysis and
-  reconstruction-error histograms.
+- **`mpirun` + TAO may stall.** A `mpirun -n 2` run of a full TAO solve hung past 7.5
+  minutes with no output and had to be killed, although trivial MPI works fine in the
+  pinned environment (both ranks print, exit 0). Unresolved. This matters because the
+  README documents `mpirun -n 4` and Tier 3 makes a 2-rank check its exit gate —
+  investigate before relying on multi-rank runs.
+- **`src/adjoint_solver.py:60`** has a non-raw docstring containing `\lambda`, which emits
+  a `SyntaxWarning` today and becomes a `SyntaxError` on a future CPython. It is the only
+  such instance in `src/` and `tests/` (verified by compiling every file with warnings
+  escalated). Left alone deliberately: the Tier 3 plan rewrites that file wholesale.
+
+## Project state (2026-08-15)
+
+On `master`, synced with `origin`, **CI green** (`install-and-import`, `gradcheck`, and a
+new `Build documentation` job). 23 tests pass.
+
+**Tier 1 of a three-tier refactor is complete.** The plans live in
+`docs/superpowers/plans/2026-08-13-tier{1,2,3}-*.md` and are meant to run in order:
+
+- **Tier 1 (done)** — pinned DOLFINx 0.11, lazy pyvista, unconverged solves raise, optimum
+  re-synced to the shared `h` after `solve()`, deterministic seeded fixture, CI green.
+- **Tier 2 (next)** — structural: a `Discretization` value object, composition replacing
+  the adjoint's inheritance of the forward solver, index-map DOF counts. Deliberately
+  **behaviour-preserving**; its exit gate is that the directional derivative does not
+  change in any digit.
+- **Tier 3** — the payoff: a fixed-sensor observation operator `B`, an explicit
+  `Σ = σ²I` likelihood, and a pure MPI-reduced `value_and_grad` that both TAO and a
+  BlackJAX `custom_vjp` bridge can consume. Unblocks multi-fidelity and HMC.
+
+The tier ordering is load-bearing: Tier 3 rewrites `adjoint_solver.__init__`, and so does
+Tier 2's composition work, so the structural change must land first or one redoes the
+other.
+
+Three known problems the plans have **not** yet addressed: the objective is not MPI-reduced
+(`fem.assemble_scalar` is rank-local), the misfit is mass-matrix weighted `rᵀMr` while
+`add_noise` generates i.i.d. per-DOF noise (so `exp(-J)` is not the posterior), and
+`add_noise` broadcasts a per-rank-sized buffer. All three are Tier 3's to fix.
 
 ## Documentation
 
