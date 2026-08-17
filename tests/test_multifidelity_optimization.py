@@ -3,14 +3,12 @@ from pathlib import Path
 
 import numpy as np
 
-
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from benchmark_utils import BenchmarkCase, BenchmarkMethod, run_benchmark_case
 from ._helpers import h0, h_true
-
 
 N_MESH = 8
 T_BOTTOM = 300.0
@@ -60,10 +58,7 @@ def test_adaptive_multifidelity_trace_keeps_forward_and_adjoint_synced():
         result.summary["final_adjoint_ksp_rtol"],
     )
     assert np.all(
-        [
-            np.isclose(row["forward_ksp_rtol"], row["adjoint_ksp_rtol"])
-            for row in trace
-        ]
+        [np.isclose(row["forward_ksp_rtol"], row["adjoint_ksp_rtol"]) for row in trace]
     )
     forward_rtols = [row["forward_ksp_rtol"] for row in trace]
     assert np.all(np.diff(forward_rtols) <= 1e-15)
@@ -95,7 +90,41 @@ def test_adaptive_multifidelity_reduces_ksp_work_vs_fixed_baseline():
     fixed = run_benchmark_case(case, fixed_method)
     adaptive = run_benchmark_case(case, adaptive_method)
 
-    assert adaptive.summary["total_ksp_iterations"] < fixed.summary["total_ksp_iterations"]
-    assert adaptive.summary["final_objective"] <= 1.10 * fixed.summary["final_objective"]
+    assert (
+        adaptive.summary["total_ksp_iterations"] < fixed.summary["total_ksp_iterations"]
+    )
+    assert (
+        adaptive.summary["final_objective"] <= 1.10 * fixed.summary["final_objective"]
+    )
     assert adaptive.summary["h_error_l2_rel"] <= 1.10 * fixed.summary["h_error_l2_rel"]
     assert adaptive.summary["ksp_tightenings"] >= 1
+
+
+def test_noisy_observations_build_on_the_forward_solvers_space():
+    """`observation_noise > 0` must produce a usable inverse problem.
+
+    `add_noise` returns a Function on the *truth* solver's space, but the adjoint
+    solver asserts its observation lives on the space of the forward solver being
+    optimized. Copying the DOF values across is what keeps the two consistent;
+    without it this path raises AssertionError before any optimization starts.
+    """
+    case = BenchmarkCase(
+        name="small-noisy",
+        h_true=h_true,
+        h0=h0,
+        nmesh=N_MESH,
+        sigma=NOISE_SIGMA,
+        alpha=REG_ALPHA,
+        observation_noise=1e-3,
+        observation_seed=0,
+        T_bottom=T_BOTTOM,
+    )
+    method = BenchmarkMethod(
+        name="fixed", forward_petsc_opts={"ksp_rtol": 1e-10}, mit=3
+    )
+
+    result = run_benchmark_case(case, method)
+
+    assert np.isfinite(result.summary["final_objective"])
+    assert np.isfinite(result.solution).all()
+    assert result.solution.shape == result.truth.shape

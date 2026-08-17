@@ -210,14 +210,18 @@ def build_inverse_problem(
     )
     fwd.solve()
 
+    # T_obs must live on `fwd.V`, not `fwd_truth.V`: the two solvers are separate
+    # instances and therefore own distinct function spaces, which the adjoint solver
+    # asserts on. Copy the DOF values across in both branches.
+    T_obs = fem.Function(fwd.V, name="ObservedTemperature")
     if case.observation_noise > 0.0:
-        T_obs = fwd_truth.add_noise(
+        noisy = fwd_truth.add_noise(
             mu=0.0, sigma=case.observation_noise, seed=case.observation_seed
         )
+        T_obs.x.array[:] = noisy.x.array
     else:
-        T_obs = fem.Function(fwd.V, name="ObservedTemperature")
         T_obs.x.array[:] = fwd_truth.T.x.array
-        T_obs.x.scatter_forward()
+    T_obs.x.scatter_forward()
 
     adj = SteadyHeat2DAdjointSolver(
         fwd,
