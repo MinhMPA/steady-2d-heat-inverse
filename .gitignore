@@ -209,3 +209,6 @@ __marimo__/
 # Sweep outputs: regenerate with scripts/run_sweep.py (see Tier 3)
 notebooks/*.npy
 notebooks/*.vtu
+
+# Benchmark output: regenerate with notebooks/MultiFidelityBenchmark.ipynb
+benchmark_output/

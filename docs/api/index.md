@@ -10,5 +10,7 @@ forward_solver
 adjoint_solver
 tao_solver
 domain_coefficient
+ksp_tolerance_controller
+benchmark_utils
 plotting_utils
 ```
