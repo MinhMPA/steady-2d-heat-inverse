@@ -1,9 +1,15 @@
 # Full-field Hamiltonian Monte Carlo for thermal conductivity
 
-Status: requirements Q1–Q16 accepted on 2026-10-17 and consolidated here for
-the final written-specification review. HMC is not implemented yet. The
+Status: requirements Q1–Q16 accepted on 2026-10-17; Q17 selected BlackJAX with
+the agreed split HMC on 2026-10-22. Acceptance of Q18–Q21 is recorded on
+2026-10-25; Q22–Q24 were accepted on 2026-10-26. All identified requirements
+are settled. The user requested implementation planning on 2026-10-26; the
+[implementation plan](../plans/2026-10-26-full-field-blackjax-hmc.md) is written
+for review. HMC is not implemented yet. The
 [requirements interview](2026-10-17-hmc-requirements-interview.md) records the
-decisions and their relationship to the existing calculation.
+scientific requirements; the
+[implementation interview](2026-10-18-hmc-implementation-interview.md) records
+the library decision and subsequent accepted behavior.
 
 The agreed first calculation infers the full conductivity field with a fixed
 Gaussian prior on log conductivity. Optimization and HMC use one declared
@@ -296,10 +302,19 @@ retained draws, and a seed; optional explicit controls permit numerical
 comparisons. Record the realized step size, trajectory-duration distribution,
 warmup settings, and integrator in the result.
 
-This can be implemented with the installed NumPy/SciPy stack and a direct adjoint
-evaluation. A BlackJAX/NUTS calculation is a possible later extension; an
-ordinary leapfrog version would again approximate the Gaussian flow, and its
-refinement behavior would require separate measurement.
+Q17 selects BlackJAX for the first implementation, retaining the exact Gaussian
+rotation, likelihood kicks, identity momentum covariance, step-size-only warmup,
+and randomized trajectory durations. This supersedes the earlier allowance to
+start with a native NumPy/SciPy sampler and defer BlackJAX. The heat equation
+and consistent sensor adjoint remain finite-element calculations. A JAX-facing
+potential with a supplied derivative connects that calculation to BlackJAX;
+the connection and custom integrator must pass numerical qualification before
+the four-chain mesh studies. Selection is not evidence of local compatibility
+or completed implementation.
+
+Standard NUTS remains a possible later method comparison. Its ordinary
+leapfrog dynamics would again approximate the Gaussian flow, and its refinement
+behavior would require separate measurement. It is not selected by Q17.
 Use an established optional diagnostics package for rank-normalized statistics
 and effective sample sizes, and record its version. The numerical implementation
 plan chooses that package; its absence must be reported as diagnostics
@@ -317,9 +332,11 @@ Numerical requirements:
   alteration of the target density.
 - An unconverged finite-element solve stops the run with a diagnostic rather
   than being silently interpreted as zero posterior probability.
-- The first supported calculation is one MPI rank. Multiple ranks raise an
-  explicit unsupported-operation error until their field distribution and
-  global acceptance decision are separately validated.
+- Each supported heat solve and its chain initially use one MPI rank.
+  Independent chains have separate heat calculations. Distributing one heat
+  solve across multiple ranks raises an explicit unsupported-operation error
+  until its field distribution and global acceptance decision are separately
+  validated.
 
 ## Conductivity with sharp interfaces
 
@@ -438,6 +455,24 @@ estimate = problem.optimize(initial_h=h0)
 draws = problem.sample(initial=estimate, seed=42)
 ```
 
+Q19 fixes the declared physical inputs when constructing the inference problem:
+the mesh, source, boundary data, observations, noise model, and prior. Later
+changes to the supplied forward model or original observation arrays do not
+change that problem. A changed experiment is declared through a new problem.
+Each chain has its own heat calculation using the fixed inputs. The supplied
+conductivity remains a starting-state choice, distinct from the prior mean;
+Q9's preservation of the caller's pre-call conductivity and temperature still
+applies. Q24 governs application to a subsequently changed forward model below.
+
+Q18 specifies warmup and retained-draw counts per chain. Four chains with 2,000
+retained draws mean 8,000 draws in total, with the chain axis preserved. One
+master seed determines reproducible independent chain random streams. Warmup
+does not enter posterior summaries. Q22 sets four chains as the ordinary-call
+default; an explicit single-chain calculation remains available for quick
+checks. It cannot satisfy the four-chain qualification criteria, and four
+chains alone do not establish convergence. Execution order or concurrency must
+not silently reduce the requested chain count.
+
 The user supplies conductivity in physical units. The inference calculation
 constructs its consistent adjoint and sampling coordinates. A complete estimate
 carries all inferred quantities as well as physical conductivity, so handing it
@@ -448,7 +483,14 @@ can supply that starting field. A scalar initializes every conductivity unknown;
 it does not reduce the inference to one scalar parameter. In particular, the
 current forward solver's constant-coefficient representation must not silently
 remove the field degrees of freedom. Four-chain studies use independent seeds
-and dispersed starting states.
+and dispersed starting states. Q20 accepts automatic dispersion for multiple
+chains initialized from a single estimate: treat it as the center of
+reproducible prior-correlated perturbations with a documented adjustable
+amplitude, and also accept explicit per-chain starting states. Record the actual
+starting fields and test sensitivity to the dispersion. A single chain uses
+its supplied state directly. Continuation restores saved states rather than
+repeating this initialization. The precise default dispersion is subject to
+pilot qualification.
 
 Q8 requires physical conductivity draws indexed by chain, retained draw, and
 spatial degree of freedom, paired with mesh/coordinate information and the
@@ -462,12 +504,24 @@ Provide a direct route from a selected physical draw or summary to the existing
 field plots. Access to sensor predictions must preserve the supplied physical
 model just as optimization and sampling do. Numerical module names and storage
 format are implementation choices; these physical meanings and behaviors are
-the agreed requirements.
+the agreed requirements. Q21 selects physical summaries and access to saved
+draws on demand as the default result. Loading the whole chain into memory is
+explicit. A selected conductivity field is available as an ordinary array in
+the recorded spatial order for existing plots. Summaries use all retained
+states, including rejection repeats; memory limits do not justify silent
+thinning or substituting summaries of logarithmic conductivity.
 
 Q9 requires restoring the supplied forward model's pre-call physical state on
 return or handled interruption. Applying a selected draw or summary is explicit
-and recomputes its temperature. Original TAO calls retain their existing
-behavior. See
+and recomputes its temperature. Q24 requires this ordinary application to check
+that the destination mesh, heat source, and boundary conditions match the
+recorded experiment before changing the destination model. A mismatch is
+reported without applying the field. This comparison excludes the current
+conductivity and temperature, which are the state being replaced. Conductivity
+arrays remain available for deliberately declared new experiments; predictions under changed heating
+conditions must be identified as such. A convenience operation for that use
+case and automatic transfer to a changed mesh are outside the first release.
+Original TAO calls retain their existing behavior. See
 [`0003-preserve-the-supplied-physical-state.md`](../../adr/0003-preserve-the-supplied-physical-state.md).
 
 ## Saved calculations and continuation
@@ -497,6 +551,15 @@ the physics, observations, prior, mesh, and numerical settings still describe
 the same calculation. Changed numerics cannot silently append to an existing
 chain. A handled interruption restores the caller's physical model and leaves
 the last completed trajectory available for continuation.
+
+Q23 distinguishes resuming from extending. Resume completes the original
+requested per-chain target, preserving chains that have already reached it.
+For a 2,000-draw target interrupted at `[2000, 2000, 1370, 0]`, it completes only
+the missing iterations and any outstanding warmup. Extension explicitly sets
+a new per-chain total, for example 3,000. Neither operation repeats completed
+initialization or warmup. Changing only the requested total does not authorize
+changes to the posterior, chain identities, numerical settings, or saved
+random states.
 
 An unconverged heat or adjoint solve stops the calculation and preserves its
 failure evidence and last complete saved state. A proposal with nonfinite
@@ -555,12 +618,20 @@ Write each numerical check before the corresponding new implementation.
    Uniform physical initialization retains all field unknowns. Original nodal
    observations preserve positions, ordering, values, and uncertainties. Returned
    draws retain their physical spatial association and can be plotted directly.
+   Later mutation of the supplied source, boundary data, or observation arrays
+   leaves the declared inference problem unchanged. Default four-chain runs,
+   explicit single-chain checks, per-chain counts, reproducible dispersed
+   starts, and physical summaries from saved draws have the agreed meanings.
 10. New inference and prediction calls restore the supplied conductivity and
     temperature on success and handled interruption/failure. Explicit application
-    of a selected field recomputes its matching temperature. Continuation from
-    a saved trajectory boundary, including warmup, reproduces an uninterrupted
+    of a selected field recomputes its matching temperature; a mismatched
+    destination model is rejected before modification. Its current conductivity
+    and temperature are not treated as physical-model mismatches. Continuation
+    from a saved trajectory boundary, including warmup, reproduces an uninterrupted
     seeded run in the same environment, including rejection repeats and
-    diagnostic counts; incompatible settings are rejected.
+    diagnostic counts; incompatible settings are rejected. Uneven chain
+    interruption resumes to the original per-chain total, and explicit extension
+    reaches a new total without repeating completed warmup or altering old draws.
 11. The existing tests and documentation checks continue to pass.
 
 Interview Q3 accepted staged validation, and Q7 specified tests at `nmesh=16`,
@@ -625,11 +696,14 @@ interface accurately.
 
 ## Requirements review
 
-Q1–Q16 are accepted and incorporated. There are no outstanding substantive
-interview questions. This consolidated document is the final shared-understanding
-review before the numerical implementation plan. Routine names, storage format,
-recorded example parameter values, diagnostic-package selection, and pilot-based
-chain lengths are implementation responsibilities within the agreed scope.
+Q1–Q24 are accepted and incorporated. There are no outstanding identified
+requirements questions. Following the request on 2026-10-26, the
+[numerical implementation plan](../plans/2026-10-26-full-field-blackjax-hmc.md)
+records the concrete interfaces, tests and scientific qualification work for review.
+Routine names, storage format, recorded example parameter values,
+diagnostic-package selection, and pilot-based chain lengths are implementation
+responsibilities within the agreed scope. Accepted library and notebook
+requirements do not constitute numerical qualification.
 
 The first release does not infer prior/noise hyperparameters, add correlated
 noise, implement all future sharp-field priors, or distribute one heat solve

@@ -1,8 +1,11 @@
 # HMC requirements interview
 
 Date opened: 2026-10-17.
-Status: Q1–Q16 accepted on 2026-10-17; all identified substantive questions are
-settled. The consolidated specification is ready for the final written review.
+Status: Q1–Q16 accepted on 2026-10-17. The follow-on
+[implementation interview](2026-10-18-hmc-implementation-interview.md) records
+Q17's selection of BlackJAX with the agreed split HMC on 2026-10-22 and the
+accepted Q18–Q24 behavior. The consolidated specification is ready for final
+shared-understanding review following Q24's acceptance on 2026-10-26.
 The user requested an interview, with particular attention to fitting HMC
 naturally into the existing conductivity-inference workflow.
 
@@ -275,11 +278,12 @@ requirements, and the specification now incorporates them.
     optional explicit numerical controls for scientific comparisons. Use the
     exact Gaussian rotation with likelihood-force kicks and randomized
     trajectory durations as the initial HMC method; the returned settings and
-    diagnostic report identify this method. NumPy/SciPy are sufficient for the
-    dynamics; use an established optional diagnostics dependency rather than
-    implement rank-normalized diagnostics afresh. General NUTS or other priors
-    remain later extensions. Fixed PDE tolerances are qualified by separate
-    accuracy checks and do not adapt along retained trajectories.
+    diagnostic report identify this method. The initial discussion allowed a
+    native NumPy/SciPy implementation; Q17 subsequently selected BlackJAX with
+    these same dynamics. Use an established optional diagnostics dependency
+    rather than implement rank-normalized diagnostics afresh. General NUTS or
+    other priors remain later extensions. Fixed PDE tolerances are qualified
+    by separate accuracy checks and do not adapt along retained trajectories.
 15. **Q15: when a posterior result qualifies for scientific summaries — accepted.**
     Decision: across four chains require rank-normalized split/folded
     `R-hat < 1.01`, combined bulk and tail ESS at least 400, and zero recorded
@@ -310,11 +314,12 @@ requirements, and the specification now incorporates them.
     Hold the same physical prior across the main mesh comparison and identify
     prior-sensitivity studies separately.
 
-The substantive choices end at Q16, with no outstanding interview question.
-Review the consolidated specification as the final confirmation of shared
-understanding before the implementation plan. Routine module names, file
-layouts, and numerical choices are implementation responsibilities governed by
-these requirements, rather than further user questions.
+This record covers Q1–Q16. The follow-on implementation interview records
+Q17–Q24, all accepted by 2026-10-26. Review the consolidated specification as
+the final confirmation of shared understanding before the implementation plan.
+Routine module names, file layouts, and numerical choices are implementation
+responsibilities governed by these requirements, rather than further user
+questions.
 
 ## Documentation practice
 

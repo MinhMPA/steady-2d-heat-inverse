@@ -38,6 +38,11 @@ The probability law for the conductivity field conditioned on specified
 temperature observations, a measurement-noise model, and a prior. Posterior
 optimization and posterior sampling study this same probability law.
 
+**Inference problem**:
+The fixed heat model, temperature observations, noise law, prior, and spatial
+discretization that specify a conductivity posterior. Changing any of these
+declares a different inference problem.
+
 **Original reconstruction**:
 The conductivity estimate obtained by minimizing an integrated temperature
 misfit plus a conductivity-roughness penalty. It is distinct from a posterior
