@@ -203,6 +203,19 @@ def test_heat_numerics_rejects_invalid_settings(kwargs):
         HeatNumerics(**kwargs)
 
 
+@pytest.mark.parametrize("name, expected", [("rtol", 1e-11), ("atol", 1e-13)])
+def test_heat_numerics_owns_validated_tolerances(name, expected):
+    supplied = np.array(expected)
+    numerics = HeatNumerics(**{name: supplied})
+    options = numerics.petsc_options()
+
+    supplied[...] = np.nan
+
+    assert getattr(numerics, name) == expected
+    assert options[f"ksp_{name}"] == expected
+    assert numerics.petsc_options()[f"ksp_{name}"] == expected
+
+
 def test_heat_numerics_is_frozen_and_applied():
     numerics = HeatNumerics(rtol=1e-11, atol=1e-13, max_it=1234)
     with pytest.raises(FrozenInstanceError):

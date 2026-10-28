@@ -121,10 +121,14 @@ class HeatNumerics:
             value = getattr(self, name)
             if np.ndim(value) != 0 or np.iscomplexobj(value) or not np.isfinite(value):
                 raise ValueError(f"{name} must be a finite real scalar.")
+            value = float(value)
+            if not np.isfinite(value):
+                raise ValueError(f"{name} must be a finite real scalar.")
             if value < 0.0 or (name == "rtol" and value == 0.0):
                 raise ValueError(
                     f"{name} must be {'positive' if name == 'rtol' else 'nonnegative'}."
                 )
+            object.__setattr__(self, name, value)
         if (
             isinstance(self.max_it, (bool, np.bool_))
             or not isinstance(self.max_it, (int, np.integer))
