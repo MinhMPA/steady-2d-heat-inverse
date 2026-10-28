@@ -38,6 +38,7 @@ where = ["src"]
 package-dir = {"" = "src"}
 py-modules = [
   "forward_solver",
+  "heat_model",
   "adjoint_solver",
   "tao_solver",
   "domain_coefficient",

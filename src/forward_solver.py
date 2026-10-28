@@ -90,13 +90,6 @@ class SteadyHeat2DForwardSolver:
         ## 2) Neumann BC on the other three edges (insulated, zero flux).
         ## Note: No explicit Neumann BC is needed in the weak form.
 
-        # Define the weak form of the Poisson equation.
-        u = ufl.TrialFunction(self.V)
-        v = ufl.TestFunction(self.V)
-        ## ufl.inner = ufl.dot in this case
-        self.a = ufl.inner(self.h.function * ufl.grad(u), ufl.grad(v)) * ufl.dx
-        self.L = self.q.function * v * ufl.dx
-
         # Specify options for the PETSc KSP linear system solver.
         ## Default options are set to use the conjugate gradient method with hypre preconditioner.
         ## `ksp_error_if_not_converged` makes a failed solve raise instead of silently
@@ -109,16 +102,111 @@ class SteadyHeat2DForwardSolver:
         }
         self.petsc_opts = default_opts | (petsc_opts or {})
 
-        # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs.
-        self.T = fem.Function(self.V, name="Temperature")
+        self._initialize_linear_problem("s2dhi_fwd_")
+
+    @classmethod
+    def from_discrete_data(
+        cls,
+        *,
+        domain,
+        h_values,
+        q_values,
+        boundary_dofs,
+        boundary_values,
+        petsc_opts,
+        prefix,
+    ):
+        r"""Build a private heat workspace from native nodal physical data.
+
+        Parameters
+        ----------
+        domain : dolfinx.mesh.Mesh
+            Single-rank physical mesh.
+        h_values, q_values : numpy.ndarray
+            Native scalar nodal conductivity and source values.
+        boundary_dofs, boundary_values : numpy.ndarray
+            Native constrained indices and their imposed temperatures.
+        petsc_opts : dict
+            Fixed linear-solve settings.
+        prefix : str
+            Distinct PETSc options prefix.
+
+        Returns
+        -------
+        SteadyHeat2DForwardSolver
+            Independent heat fields and variational problem.
+        """
+        if domain.comm.size != 1:
+            raise ValueError("A private heat workspace requires a single MPI rank.")
+        if not isinstance(prefix, str) or not prefix:
+            raise ValueError("A nonempty distinct PETSc prefix is required.")
+        self = cls.__new__(cls)
+        self.mesh = domain
+        self.V = fem.functionspace(domain, ("Lagrange", 1))
+        count = self.V.dofmap.index_map.size_local
+        arrays = {}
+        for name, values, size in (
+            ("conductivity", h_values, count),
+            ("source", q_values, count),
+            ("boundary temperatures", boundary_values, len(boundary_dofs)),
+        ):
+            values = np.asarray(values)
+            if np.iscomplexobj(values) or not np.isfinite(values).all():
+                raise ValueError(f"{name} must contain finite real values.")
+            if values.shape != (size,):
+                raise ValueError(f"{name} must have shape ({size},).")
+            arrays[name] = values
+        if np.any(arrays["conductivity"] <= 0.0):
+            raise ValueError("Conductivity must be positive at every node.")
+        dofs = np.asarray(boundary_dofs)
+        if (
+            dofs.ndim != 1
+            or not np.issubdtype(dofs.dtype, np.integer)
+            or np.any(dofs < 0)
+            or np.any(dofs >= count)
+            or len(np.unique(dofs)) != len(dofs)
+        ):
+            raise ValueError("Boundary DOFs must be unique valid integer indices.")
+        h = fem.Function(self.V)
+        q = fem.Function(self.V)
+        h.x.array[:] = arrays["conductivity"]
+        q.x.array[:] = arrays["source"]
+        h.x.scatter_forward()
+        q.x.scatter_forward()
+        self.h = ThermalConductivity(h, domain, self.V)
+        self.q = HeatSource(q, domain, self.V)
+        boundary = fem.Function(self.V)
+        boundary.x.array[dofs] = arrays["boundary temperatures"]
+        boundary.x.scatter_forward()
+        self.bottom_dofs = np.sort(dofs).astype(np.int32)
+        self.bcs = [fem.dirichletbc(boundary, self.bottom_dofs)]
+        self.petsc_opts = dict(petsc_opts) | {
+            "ksp_error_if_not_converged": True,
+            "ksp_initial_guess_nonzero": False,
+        }
+        self._initialize_linear_problem(prefix)
+        return self
+
+    def _initialize_linear_problem(self, prefix: str) -> None:
+        r"""Build the common heat forms, preserving a matching temperature field."""
+        # Define the weak form of the Poisson equation.
+        u = ufl.TrialFunction(self.V)
+        v = ufl.TestFunction(self.V)
+        ## ufl.inner = ufl.dot in this case
+        self.a = ufl.inner(self.h.function * ufl.grad(u), ufl.grad(v)) * ufl.dx
+        self.L = self.q.function * v * ufl.dx
+
+        if not hasattr(self, "T") or self.T.function_space != self.V:
+            self.T = fem.Function(self.V, name="Temperature")
         self.problem = LinearProblem(
             self.a,
             self.L,
             u=self.T,
             bcs=self.bcs,
-            petsc_options_prefix="s2dhi_fwd_",
+            petsc_options_prefix=prefix,
             petsc_options=self.petsc_opts,
         )
+        self.problem.solver.setInitialGuessNonzero(False)
 
     def get_ksp_tolerances(self) -> tuple[float, float, float, int]:
         """
@@ -170,6 +258,7 @@ class SteadyHeat2DForwardSolver:
         -------
         T : the temperature distribution on the mesh.
         """
+        self.problem.solver.setInitialGuessNonzero(False)
         self.problem.solve()
         return self.T
 
