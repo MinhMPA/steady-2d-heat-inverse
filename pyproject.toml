@@ -39,6 +39,7 @@ package-dir = {"" = "src"}
 py-modules = [
   "forward_solver",
   "heat_model",
+  "conductivity_prior",
   "temperature_observations",
   "adjoint_solver",
   "tao_solver",
