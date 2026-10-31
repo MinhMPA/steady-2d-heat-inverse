@@ -40,6 +40,7 @@ py-modules = [
   "forward_solver",
   "heat_model",
   "conductivity_prior",
+  "conductivity_posterior",
   "temperature_observations",
   "adjoint_solver",
   "tao_solver",
