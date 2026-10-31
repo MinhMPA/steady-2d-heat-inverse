@@ -264,7 +264,7 @@ class BoundGaussianPrior:
             nonfinite so the posterior can classify the proposal explicitly.
         """
         with np.errstate(over="ignore", under="ignore", invalid="ignore"):
-            return self._h_ref * np.exp(self.to_log_h(z))
+            return np.exp(np.log(self._h_ref) + self.to_log_h(z))
 
     def from_h(self, h: np.ndarray) -> np.ndarray:
         r"""Recover Gaussian coordinates from positive finite conductivity.

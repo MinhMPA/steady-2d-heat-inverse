@@ -192,6 +192,25 @@ def test_prior_record_tracks_physics_and_excludes_initial_state():
     assert prior.record()["fingerprint"] != "changed"
 
 
+@pytest.mark.parametrize(
+    "mean, reference, conductivity",
+    [(-750.0, 1e300, 1.9016849634750064e-26), (750.0, 1e-300, 5.258494541454804e25)],
+)
+def test_reference_scale_preserves_representable_conductivity(
+    mean, reference, conductivity
+):
+    fwd = make_forward(nmesh=2)
+    prior = GaussianLogConductivity(mu=mean, kappa=2.0, tau=1.5, h_ref=reference).bind(
+        FrozenHeatModel.from_forward(fwd), fwd.V
+    )
+    # Physical h_ref * exp(mean), evaluated independently at 70-digit precision.
+    expected = np.full(9, conductivity)
+    np.testing.assert_allclose(prior.to_h(np.zeros(9)), expected, rtol=1e-12, atol=0.0)
+    np.testing.assert_allclose(
+        prior.to_h(prior.from_h(expected)), expected, rtol=1e-12, atol=0.0
+    )
+
+
 def test_prior_does_not_clip_exponential_overflow():
     fwd = make_forward(nmesh=2)
     prior = GaussianLogConductivity(mu=0.0, kappa=2.0, tau=1.5, h_ref=2.0).bind(
