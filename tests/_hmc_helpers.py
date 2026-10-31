@@ -99,3 +99,21 @@ def sensor_tangent_derivative(posterior, z, direction):
         if tangent is not None:
             _release_problem(tangent)
         _release_problem(forward.problem)
+
+
+def make_problem(nmesh=4, cell="triangle"):
+    """The same fixed-sensor experiment with an accessible caller heat model."""
+    from conductivity_prior import GaussianLogConductivity
+    from heat_inference import HeatInverseProblem
+
+    forward = make_forward(nmesh=nmesh, cell=cell)
+    try:
+        with make_posterior(nmesh=nmesh, cell=cell) as reference:
+            return HeatInverseProblem(
+                forward=forward,
+                observations=reference.observations,
+                prior=GaussianLogConductivity(mu=0, kappa=2, tau=1, h_ref=1),
+            )
+    except Exception:
+        _release_problem(forward.problem)
+        raise
