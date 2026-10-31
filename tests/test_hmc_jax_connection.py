@@ -1,14 +1,25 @@
 """The eager JAX probability and force retain the finite-element posterior."""
 
 import os
+
+import pytest
+
+if os.environ.get("S2DHI_HMC_QUALIFICATION") != "1":
+    pytest.skip(
+        "Set S2DHI_HMC_QUALIFICATION=1 to require eager CPU float64 HMC qualification.",
+        allow_module_level=True,
+    )
+
+# Explicit qualification must fail during collection if its environment is invalid.
+from hmc_blackjax import make_logdensity, require_sampling_environment
+
+require_sampling_environment()
+
 import subprocess
 import sys
 import textwrap
 
 import numpy as np
-import pytest
-
-from hmc_blackjax import make_logdensity, require_sampling_environment
 import jax
 import jax.numpy as jnp
 from conductivity_posterior import HeatSolveFailure, NonfiniteProposal
