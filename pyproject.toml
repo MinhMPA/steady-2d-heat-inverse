@@ -22,6 +22,16 @@ plot = [
   "pyvista>=0.48",
 ]
 
+# First sampling qualification is Python 3.12+, with eager CPU float64 JAX.
+sampling = [
+  "blackjax==1.7.1; python_version >= '3.12'",
+  "jax[cpu]==0.11.2; python_version >= '3.12'",
+  "jaxlib==0.11.2; python_version >= '3.12'",
+]
+diagnostics = [
+  "arviz-stats==1.3.3; python_version >= '3.12'",
+]
+
 # For command-line scripts (if any).
 # [project.scripts]
 # steady-2d-heat = "your_module:main"
@@ -42,6 +52,7 @@ py-modules = [
   "conductivity_prior",
   "conductivity_posterior",
   "heat_inference",
+  "hmc_blackjax",
   "temperature_observations",
   "adjoint_solver",
   "tao_solver",

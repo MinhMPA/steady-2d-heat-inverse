@@ -1,0 +1,20 @@
+# Candidate CPU sampling qualification: CPython 3.12, macOS ARM64.
+# Resolve with this file; inspect the dry-run report before installation.
+# Preserve the existing conda finite-element and numerical calculation.
+numpy==2.5.2
+scipy==1.18.0
+petsc4py==3.25.4
+fenics-dolfinx==0.11.0
+h5py==3.16.0
+pytest==9.1.1
+
+blackjax==1.7.1
+jax==0.11.2
+jaxlib==0.11.2
+arviz-stats==1.3.3
+
+# Transitive packages accepted in the inspected CPU qualification resolver report.
+optax==0.2.8
+ml_dtypes==0.6.0
+absl-py==2.5.1
+opt_einsum==3.4.0
