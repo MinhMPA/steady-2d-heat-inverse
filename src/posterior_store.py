@@ -34,6 +34,7 @@ _NUMERICAL_MODULES = (
     "conductivity_posterior",
     "heat_inference",
     "hmc_blackjax",
+    "hmc_run",
     "posterior_store",
 )
 
@@ -572,6 +573,22 @@ class RunStore:
             instance.close()
             raise
 
+    @property
+    def path(self):
+        """Resolved directory holding this physical calculation."""
+        return self._path
+
+    def failures(self):
+        """Read saved interruption and fatal-solve evidence in event order.
+
+        Returns
+        -------
+        iterator of dict
+            Copied failure evidence, including separately abandoned solve cost.
+        """
+        for row in self._connection.execute("SELECT data FROM failures ORDER BY id"):
+            yield _unpack(row[0])
+
     def _take_lock(self):
         self._lock = (self._path / ".writer.lock").open("a+b")
         try:
@@ -1030,6 +1047,25 @@ class RunStore:
                     name: int(value) for name, value in cp["counters"].items()
                 },
             }
+        failures = list(self.failures())
+        if failures:
+            last = failures[-1]
+            summary["last_failure"] = {
+                name: last.get(name)
+                for name in (
+                    "output",
+                    "chain",
+                    "phase",
+                    "trajectory",
+                    "exception",
+                    "message",
+                    "committed",
+                )
+            }
+        summary["aborted_work"] = {
+            name: sum(item.get("aborted_work", {}).get(name, 0) for item in failures)
+            for name in ("heat", "adjoint", "heat_iterations", "adjoint_iterations")
+        }
         try:
             _atomic_file(self._path / "status.json", _json(summary))
         except OSError:

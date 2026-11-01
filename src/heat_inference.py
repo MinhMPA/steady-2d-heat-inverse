@@ -362,6 +362,160 @@ class HeatInverseProblem:
             message,
         )
 
+    def sample(
+        self,
+        *,
+        initial=None,
+        seed: int,
+        warmup=1000,
+        draws=2000,
+        chains=4,
+        output=None,
+        controls=None,
+        initial_states=None,
+        progress=None,
+    ):
+        r"""Sample every conductivity degree of freedom in independent chains.
+
+        Parameters
+        ----------
+        initial, initial_states : physical field or complete inferred states
+            Supply exactly one common center or an explicit state per chain.
+            A common center is dispersed only when more than one chain is used.
+        seed : int
+            Unsigned 32-bit master seed for independent threefry2x32 streams.
+        warmup, draws, chains : int
+            Per-chain warmup and retained counts; four independent chains default.
+            Zero warmup requires disabled adaptation and explicit step size.
+        output : path-like, optional
+            New directory; defaults to a unique directory under ``runs``.
+        controls : HMCControls, optional
+            Frozen trajectory durations, spacing and initialization dispersion.
+        progress : callable, optional
+            Called after committed boundaries, with per-chain progress evidence.
+
+        Returns
+        -------
+        PosteriorSamples
+            Saved completed calculation. Failures leave inspectable evidence and
+            propagate with its path. Caller conductivity/temperature are preserved.
+        """
+        self._require_open()
+        if set(self._prior.coordinate_schema) != {"z"}:
+            raise ValueError(
+                "unsupported inferred coordinates for this Gaussian sampler"
+            )
+        if (initial is None) == (initial_states is None):
+            raise ValueError("Supply exactly one of initial and initial_states.")
+        from hmc_blackjax import HMCControls
+        from hmc_run import RunRequest, prepare_initial_states, run_chains
+        from posterior_store import RunStore
+        from posterior_samples import PosteriorSamples
+        from pathlib import Path
+        from datetime import datetime, timezone
+        from uuid import uuid4
+
+        request = RunRequest(
+            warmup,
+            draws,
+            chains,
+            seed,
+            controls if controls is not None else HMCControls(),
+        )
+        if progress is not None and not callable(progress):
+            raise TypeError("progress must be callable.")
+        if initial_states is None:
+            state = self.initial_state(initial)
+            supplied = [state] * request.chains
+        else:
+            supplied = list(initial_states)
+            if len(supplied) != request.chains:
+                raise ValueError("Explicit initial_states must match chains.")
+            supplied = [self.initial_state(value) for value in supplied]
+        actual, streams = prepare_initial_states(
+            supplied, request, disperse=initial_states is None and request.chains > 1
+        )
+        record = self.to_record()
+        metadata = request.metadata()
+        metadata.update(
+            initial_states=actual,
+            random_streams=streams,
+            initialization={
+                "kind": (
+                    "explicit_per_chain"
+                    if initial_states is not None
+                    else (
+                        "dispersed_center"
+                        if request.chains > 1
+                        else "exact_single_state"
+                    )
+                ),
+                "spread": request.controls.initial_spread,
+                "scheme": "z_center + initial_spread * independent_standard_normal",
+                "supplied_states": [state.coordinates for state in supplied],
+            },
+        )
+        if output is None:
+            parent = Path("runs")
+            parent.mkdir(exist_ok=True)
+            output = parent / (
+                "hmc-"
+                + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                + "-"
+                + uuid4().hex
+            )
+        with RunStore.create(output, problem=record, run_metadata=metadata) as store:
+            run_chains(
+                self,
+                initial_states=actual,
+                request=request,
+                store=store,
+                progress=progress,
+            )
+        return PosteriorSamples.open(output)
+
+    def resume(self, output, *, total_draws=None, progress=None):
+        r"""Continue or extend the exact saved conductivity calculation.
+
+        Parameters
+        ----------
+        output : path-like
+            Existing completed or interrupted calculation directory.
+        total_draws : int, optional
+            Requested per-chain total, at least the original target. All existing
+            warmup, retained fields, controls, starts and random states persist.
+        progress : callable, optional
+            Receives per-chain progress after each durable trajectory.
+
+        Returns
+        -------
+        PosteriorSamples
+            Completed calculation. Changed physics, sources or numerical
+            environment fail before any new trajectory or target is written.
+        """
+        self._require_open()
+        from hmc_run import RunRequest, run_chains
+        from hmc_blackjax import require_sampling_environment
+        from posterior_store import RunStore
+        from posterior_samples import PosteriorSamples
+
+        if progress is not None and not callable(progress):
+            raise TypeError("progress must be callable.")
+        require_sampling_environment()
+        with RunStore.open(output, writable=True) as store:
+            store.validate_identity(self.to_record())
+            if total_draws is not None:
+                store.update_target(total_draws)
+            request = RunRequest.from_metadata(store.metadata)
+            run_chains(
+                self,
+                initial_states=None,
+                request=request,
+                store=store,
+                progress=progress,
+            )
+        return PosteriorSamples.open(output)
+
     def to_record(self):
         r"""Freeze all physical inputs and numerical provenance for reconstruction.
 

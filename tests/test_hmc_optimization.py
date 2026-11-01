@@ -315,3 +315,14 @@ def test_context_releases_owned_workspaces_and_retains_caller(problem):
 def test_optimizer_rejects_invalid_stopping_parameters(problem, options):
     with pytest.raises(ValueError):
         problem.optimize(initial_h=1.0, **options)
+
+
+def test_sampler_rejects_unsupported_coordinates_before_output(tmp_path):
+    future = state_only_problem({"z": (9,), "interface": (1,)})
+    complete = InferredState(
+        {"z": np.zeros(9), "interface": np.array([0.6])}, future.problem_id
+    )
+    output = tmp_path / "unsupported"
+    with pytest.raises(ValueError, match="unsupported.*coordinates"):
+        future.sample(initial=complete, seed=1, output=output)
+    assert not output.exists()

@@ -1,7 +1,7 @@
 """Eager CPU connection to the supplied finite-element posterior and adjoint."""
 
 # standard-library imports
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import importlib
 from math import pi
 from numbers import Integral
@@ -186,7 +186,8 @@ class HMCControls:
         These defaults remain provisional pending physical qualification.
     """
 
-    initial_step_size: float = 0.1
+    initial_step_size: float | None = None
+    initial_step_size_explicit: bool = field(init=False)
     target_acceptance: float = 0.8
     trajectory_interval: tuple = (pi / 4, 3 * pi / 4)
     adapt_step_size: bool = True
@@ -195,6 +196,11 @@ class HMCControls:
     initial_spread: float = 0.3
 
     def __post_init__(self):
+        object.__setattr__(
+            self, "initial_step_size_explicit", self.initial_step_size is not None
+        )
+        if self.initial_step_size is None:
+            object.__setattr__(self, "initial_step_size", 0.1)
         for name in (
             "initial_step_size",
             "target_acceptance",

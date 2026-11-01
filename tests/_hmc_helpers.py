@@ -143,3 +143,35 @@ def gaussian_value_and_grad(mean, covariance):
         return np.float64(0.5 * displacement @ gradient), gradient
 
     return value_and_grad
+
+
+def interrupt_after(chain, phase, completed):
+    """Interrupt only after the specified durable physical trajectory."""
+
+    def progress(event):
+        if (event.chain, event.phase, event.completed) == (chain, phase, completed):
+            raise KeyboardInterrupt("test interruption after committed trajectory")
+
+    return progress
+
+
+def assert_runs_equal(a, b):
+    """Compare exact scientific histories, excluding wall time and failure cost."""
+    from posterior_store import RunStore, _same, _fields
+
+    with RunStore.open(a) as left, RunStore.open(b) as right:
+        assert left.metadata["chains"] == right.metadata["chains"]
+        for chain in range(left.metadata["chains"]):
+            assert _same(
+                _fields(left.initial_checkpoint(chain)),
+                _fields(right.initial_checkpoint(chain)),
+            )
+            assert _same(
+                _fields(left.checkpoint(chain)), _fields(right.checkpoint(chain))
+            )
+            for phase in ("warmup", "sample"):
+                x, y = list(left.records(chain, phase=phase)), list(
+                    right.records(chain, phase=phase)
+                )
+                assert len(x) == len(y)
+                assert all(_same(_fields(u), _fields(v)) for u, v in zip(x, y))

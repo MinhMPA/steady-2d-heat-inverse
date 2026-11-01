@@ -54,6 +54,8 @@ py-modules = [
   "heat_inference",
   "posterior_store",
   "hmc_blackjax",
+  "hmc_run",
+  "posterior_samples",
   "temperature_observations",
   "adjoint_solver",
   "tao_solver",
