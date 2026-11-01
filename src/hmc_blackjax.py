@@ -1,7 +1,10 @@
 """Eager CPU connection to the supplied finite-element posterior and adjoint."""
 
 # standard-library imports
+from dataclasses import dataclass
 import importlib
+from math import pi
+from numbers import Integral
 import platform
 import sys
 
@@ -140,3 +143,485 @@ def make_logdensity(value_and_grad):
 
     logdensity.defvjp(forward, reverse)
     return logdensity
+
+
+# These declarations intentionally need no optional sampling imports.
+def _finite_scalar(value, name):
+    if isinstance(value, (bool, np.bool_)) or np.asarray(value).shape != ():
+        raise ValueError(f"{name} must be one finite real number.")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be one finite real number.") from exc
+    if not np.isfinite(result):
+        raise ValueError(f"{name} must be one finite real number.")
+    return result
+
+
+def _interval(value, name):
+    try:
+        items = tuple(value)
+    except TypeError as exc:
+        raise ValueError(f"{name} must contain two finite real numbers.") from exc
+    if len(items) != 2:
+        raise ValueError(f"{name} must contain two finite real numbers.")
+    return tuple(_finite_scalar(item, name) for item in items)
+
+
+@dataclass(frozen=True)
+class HMCControls:
+    r"""Recorded controls for the Gaussian-prior Hamiltonian calculation.
+
+    Parameters
+    ----------
+    initial_step_size, target_acceptance : float
+        Initial integration spacing and desired Metropolis acceptance in warmup.
+    trajectory_interval, step_size_bounds : pair of float
+        Duration interval and allowed integration spacing. The duration and
+        spacing constraints keep rounded trajectories away from prior resonance.
+    adapt_step_size : bool
+        Tune only integration spacing during warmup; momentum covariance is fixed.
+    divergence_threshold, initial_spread : float
+        Absolute energy-error diagnostic threshold and initial whitened spread.
+        These defaults remain provisional pending physical qualification.
+    """
+
+    initial_step_size: float = 0.1
+    target_acceptance: float = 0.8
+    trajectory_interval: tuple = (pi / 4, 3 * pi / 4)
+    adapt_step_size: bool = True
+    step_size_bounds: tuple = (1e-6, pi / 8)
+    divergence_threshold: float = 1000.0
+    initial_spread: float = 0.3
+
+    def __post_init__(self):
+        for name in (
+            "initial_step_size",
+            "target_acceptance",
+            "divergence_threshold",
+            "initial_spread",
+        ):
+            object.__setattr__(self, name, _finite_scalar(getattr(self, name), name))
+        for name in ("trajectory_interval", "step_size_bounds"):
+            object.__setattr__(self, name, _interval(getattr(self, name), name))
+        if not isinstance(self.adapt_step_size, (bool, np.bool_)):
+            raise TypeError("adapt_step_size must be boolean.")
+        object.__setattr__(self, "adapt_step_size", bool(self.adapt_step_size))
+        tmin, tmax = self.trajectory_interval
+        lower, upper = self.step_size_bounds
+        if not 0 < tmin < tmax < pi:
+            raise ValueError("Require 0 < Tmin < Tmax < pi for the prior rotation.")
+        if not 0 < lower <= upper <= min(tmin / 2, pi - tmax):
+            raise ValueError(
+                "Step-size bounds must be positive and avoid prior resonance."
+            )
+        if not lower <= self.initial_step_size <= upper:
+            raise ValueError("Initial step size must lie within its recorded bounds.")
+        if not 0 < self.target_acceptance < 1:
+            raise ValueError(
+                "Target acceptance must lie strictly between zero and one."
+            )
+        if self.divergence_threshold <= 0 or self.initial_spread < 0:
+            raise ValueError(
+                "Divergence threshold must be positive and spread nonnegative."
+            )
+
+
+@dataclass(frozen=True)
+class Transition:
+    """One retained or repeated state and its Hamiltonian diagnostics.
+
+    Energies use ``final - initial`` for ``delta_energy``. Missing energies and
+    the ordinary no-failure reason are ``None``. A finite large energy error is
+    a diagnostic; BlackJAX still makes the ordinary Metropolis decision.
+    """
+
+    state: object
+    acceptance_probability: float
+    accepted: bool
+    divergent: bool
+    delta_energy: object
+    initial_energy: object
+    final_energy: object
+    num_steps: int
+    failure_reason: object
+
+
+def _require_finite(stage, position, *values):
+    if any(not np.isfinite(np.asarray(value)).all() for value in values):
+        from conductivity_posterior import NonfiniteProposal
+
+        raise NonfiniteProposal(stage, np.asarray(position))
+
+
+def gaussian_split_integrator(logdensity_fn, kinetic_energy):
+    r"""Return likelihood half-kicks around an exact unit Gaussian rotation.
+
+    Parameters
+    ----------
+    logdensity_fn : callable
+        Full log density ``-Phi(z) - 0.5*z@z`` with its supplied adjoint.
+    kinetic_energy : callable
+        BlackJAX kinetic energy for the fixed identity momentum covariance.
+
+    Returns
+    -------
+    callable
+        A BlackJAX ``IntegratorState, step_size -> IntegratorState`` map.
+        The kick uses ``grad(Phi) = -logdensity_grad - z``. Only the
+        likelihood is approximated; the Gaussian prior and kinetic energy
+        evolve together by an exact phase-space rotation.
+    """
+    jax = importlib.import_module("jax")
+    jnp = importlib.import_module("jax.numpy")
+    state_type = importlib.import_module("blackjax.mcmc.integrators").IntegratorState
+    value_and_grad = jax.value_and_grad(logdensity_fn)
+
+    def step(state, step_size):
+        z, p, value, grad = state
+        _require_finite("initial Hamiltonian", z, z, p, value, grad, kinetic_energy(p))
+        # The prior force has already been included in logdensity_grad.
+        p = p + (0.5 * step_size) * (grad + z)
+        cosine, sine = jnp.cos(step_size), jnp.sin(step_size)
+        new_z = cosine * z + sine * p
+        new_p = -sine * z + cosine * p
+        _require_finite("Gaussian rotation", new_z, new_z, new_p)
+        value, grad = value_and_grad(new_z)
+        _require_finite("posterior value or force", new_z, value, grad)
+        new_p = new_p + (0.5 * step_size) * (grad + new_z)
+        _require_finite(
+            "final Hamiltonian",
+            new_z,
+            new_p,
+            kinetic_energy(new_p),
+            -value + kinetic_energy(new_p),
+        )
+        return state_type(new_z, new_p, value, grad)
+
+    return step
+
+
+def _copy_leaf(value):
+    # Preserve scalar-vs-array identity, dtype and shape in named storage fields.
+    # A JAX scalar is an array of shape (), never a Python float sentinel.
+    if isinstance(value, np.ndarray) or (
+        hasattr(value, "shape") and hasattr(value, "dtype")
+    ):
+        return np.array(value, copy=True)
+    if isinstance(value, (float, int, bool, str, type(None), np.generic)):
+        return value
+    raise TypeError(f"Unsupported library state field type: {type(value).__name__}.")
+
+
+def _encode_named(state):
+    return {name: _copy_leaf(getattr(state, name)) for name in state._fields}
+
+
+def _decode_named(fields, state_type):
+    if not isinstance(fields, dict) or set(fields) != set(state_type._fields):
+        raise ValueError(
+            "Saved fields must contain every named library state field exactly."
+        )
+    jnp = importlib.import_module("jax.numpy")
+    return state_type(
+        **{
+            name: (
+                jnp.asarray(np.array(value, copy=True))
+                if isinstance(value, np.ndarray)
+                else _copy_leaf(value)
+            )
+            for name, value in fields.items()
+        }
+    )
+
+
+def encode_state(state):
+    """Copy every named BlackJAX HMC field to lossless NumPy/scalar storage."""
+    return _encode_named(state)
+
+
+def decode_state(fields):
+    """Restore all named HMC fields, preserving array shape and dtype."""
+    require_sampling_environment()
+    state_type = importlib.import_module("blackjax.mcmc.hmc").HMCState
+    return _decode_named(fields, state_type)
+
+
+def encode_adaptation(state):
+    """Copy every pinned dual-averaging field, including its iteration state."""
+    return _encode_named(state)
+
+
+def decode_adaptation(fields):
+    """Restore all named dual-averaging fields without dropping library fields."""
+    require_sampling_environment()
+    state_type = importlib.import_module(
+        "blackjax.adaptation.step_size"
+    ).DualAveragingAdaptationState
+    return _decode_named(fields, state_type)
+
+
+def _copy_state(state):
+    # Library states are immutable containers, but copies also isolate future
+    # host storage conversions from the retained physical coordinates.
+    jnp = importlib.import_module("jax.numpy")
+    return type(state)(*(jnp.array(value, copy=True) for value in state))
+
+
+def _hamiltonian(logdensity, momentum):
+    with np.errstate(over="ignore", invalid="ignore"):
+        value = float(
+            -np.asarray(logdensity)
+            + 0.5 * np.dot(np.asarray(momentum), np.asarray(momentum))
+        )
+    return value if np.isfinite(value) else None
+
+
+class BlackJAXChain:
+    r"""Eager CPU HMC for all whitened conductivity coordinates.
+
+    Parameters
+    ----------
+    value_and_grad : callable
+        Full potential and supplied adjoint derivative at a copied float64 vector.
+    controls : HMCControls
+        Frozen physical-trajectory and step-size-only warmup settings.
+
+    Notes
+    -----
+    BlackJAX refreshes momenta, constructs the endpoint proposal, and chooses
+    the retained state by ordinary Metropolis acceptance. The sole exceptional
+    rejection is nonfinite arithmetic. An unconverged heat solve propagates.
+    """
+
+    def __init__(self, value_and_grad, controls):
+        if not isinstance(controls, HMCControls):
+            raise TypeError("controls must be frozen HMCControls.")
+        self.controls = controls
+        self.logdensity = make_logdensity(value_and_grad)
+        self._jax = importlib.import_module("jax")
+        self._jnp = importlib.import_module("jax.numpy")
+        self._hmc = importlib.import_module("blackjax.mcmc.hmc")
+        adaptation = importlib.import_module("blackjax.adaptation.step_size")
+        self._adapt_init, self._adapt_update, self._adapt_final = (
+            adaptation.dual_averaging_adaptation(
+                controls.target_acceptance, t0=10, gamma=0.05, kappa=0.75
+            )
+        )
+
+    def initialize(self, z):
+        """Evaluate one finite initial potential and supplied adjoint force.
+
+        Parameters
+        ----------
+        z : array-like
+            All whitened conductivity coordinates, as a finite vector.
+
+        Returns
+        -------
+        HMCState
+            Copied position, full log density and its supplied derivative.
+        """
+        z = np.array(z, dtype=np.float64, copy=True)
+        if z.ndim != 1 or z.size == 0:
+            raise ValueError("Initial whitened conductivity must be a nonempty vector.")
+        _require_finite("initial position", z, z)
+        with self._jax.disable_jit():
+            state = self._hmc.init(self._jnp.asarray(z), self.logdensity)
+        _require_finite("initial posterior", z, state.logdensity, state.logdensity_grad)
+        return _copy_state(state)
+
+    def transition(self, state, *, key, step_size, num_steps):
+        """Advance one trajectory, retaining all repeated-state outcomes.
+
+        Parameters
+        ----------
+        state : HMCState
+            Previous whitened field with its full log density and derivative.
+        key : JAX random key
+            Preallocated transition key for momentum and Metropolis randomness.
+        step_size : float
+            Integration spacing within the recorded bounds.
+        num_steps : int
+            Positive number of split Hamiltonian steps.
+
+        Returns
+        -------
+        Transition
+            Copied new or repeated state, acceptance and energy diagnostics.
+            An unconverged heat or adjoint solve propagates to the caller.
+        """
+        step_size = _finite_scalar(step_size, "step_size")
+        lower, upper = self.controls.step_size_bounds
+        if not lower <= step_size <= upper:
+            raise ValueError("Trajectory step size must lie within recorded bounds.")
+        if (
+            isinstance(num_steps, bool)
+            or not isinstance(num_steps, Integral)
+            or num_steps < 1
+        ):
+            raise ValueError("num_steps must be a positive integer.")
+        num_steps = int(num_steps)
+        from conductivity_posterior import NonfiniteProposal
+
+        initial_energy = None
+        # This observer sees the actual BlackJAX momentum once; it neither
+        # draws momentum nor constructs a second proposal/acceptance decision.
+        observed = False
+
+        def observed_integrator(logdensity_fn, kinetic_energy):
+            step = gaussian_split_integrator(logdensity_fn, kinetic_energy)
+
+            def observe(integrator_state, eps):
+                nonlocal initial_energy, observed
+                if not observed:
+                    initial_energy = _hamiltonian(
+                        integrator_state.logdensity, integrator_state.momentum
+                    )
+                    observed = True
+                return step(integrator_state, eps)
+
+            return observe
+
+        kernel = self._hmc.build_kernel(
+            integrator=observed_integrator,
+            divergence_threshold=self.controls.divergence_threshold,
+        )
+        try:
+            with self._jax.disable_jit():
+                new_state, info = kernel(
+                    key,
+                    state,
+                    self.logdensity,
+                    step_size,
+                    self._jnp.ones_like(state.position),
+                    num_steps,
+                )
+        except NonfiniteProposal as exc:
+            return Transition(
+                _copy_state(state),
+                0.0,
+                False,
+                True,
+                None,
+                initial_energy,
+                None,
+                num_steps,
+                f"nonfinite {exc.stage}",
+            )
+        final_energy = float(info.energy)
+        if not np.isfinite(final_energy):
+            final_energy = None
+        with np.errstate(over="ignore", invalid="ignore"):
+            delta = (
+                final_energy - initial_energy
+                if final_energy is not None and initial_energy is not None
+                else None
+            )
+        delta = delta if delta is not None and np.isfinite(delta) else None
+        probability = float(info.acceptance_rate)
+        if (
+            delta is None
+            or not np.isfinite(probability)
+            or any(not np.isfinite(np.asarray(value)).all() for value in info.proposal)
+        ):
+            return Transition(
+                _copy_state(state),
+                0.0,
+                False,
+                True,
+                delta,
+                initial_energy,
+                final_energy,
+                num_steps,
+                "nonfinite Hamiltonian or proposal",
+            )
+        return Transition(
+            _copy_state(new_state),
+            probability,
+            bool(info.is_accepted),
+            abs(delta) > self.controls.divergence_threshold,
+            delta,
+            initial_energy,
+            final_energy,
+            num_steps,
+            None,
+        )
+
+    def begin_warmup(self):
+        """Initialize the recorded step-size warmup.
+
+        Returns
+        -------
+        DualAveragingAdaptationState
+            Every named field of the pinned BlackJAX warmup state.
+        """
+        with self._jax.disable_jit():
+            return self._adapt_init(self.controls.initial_step_size)
+
+    def _bounded_step_size(self, proposed):
+        lower, upper = self.controls.step_size_bounds
+        proposed = float(proposed)
+        if not np.isfinite(proposed) or proposed < lower:
+            raise ValueError(
+                f"Required step size {proposed!r} is below the lower bound {lower!r} "
+                "or nonfinite; inspect warmup acceptance and physical force scales."
+            )
+        return min(proposed, upper)
+
+    def adapt(self, adaptation, acceptance_probability):
+        """Update warmup and cap the next Hamiltonian integration spacing.
+
+        Parameters
+        ----------
+        adaptation : DualAveragingAdaptationState
+            Complete current step-size warmup state.
+        acceptance_probability : float
+            Metropolis acceptance probability in the closed interval [0, 1].
+
+        Returns
+        -------
+        DualAveragingAdaptationState
+            Complete updated state, or the supplied state under manual controls.
+            A required spacing below the lower bound raises with evidence.
+        """
+        probability = _finite_scalar(acceptance_probability, "acceptance_probability")
+        if not 0 <= probability <= 1:
+            raise ValueError("Acceptance probability must lie between zero and one.")
+        if not self.controls.adapt_step_size:
+            return adaptation
+        with self._jax.disable_jit():
+            updated = self._adapt_update(adaptation, probability)
+            _finite_scalar(updated.log_step_size, "proposed log step size")
+            # Cap in logarithmic coordinates before exponentiation: a finite
+            # warmup proposal may have an unrepresentably large exponential.
+            capped_log_size = self._jnp.minimum(
+                updated.log_step_size, np.log(self.controls.step_size_bounds[1])
+            )
+            self._bounded_step_size(self._jnp.exp(capped_log_size))
+            return updated._replace(log_step_size=capped_log_size)
+
+    def final_step_size(self, adaptation):
+        """Fix the averaged spacing for the retained conductivity draws.
+
+        Parameters
+        ----------
+        adaptation : DualAveragingAdaptationState
+            Complete final warmup state, including the averaged log spacing.
+
+        Returns
+        -------
+        float
+            Bounded averaged spacing, or the explicitly chosen manual spacing.
+        """
+        if not self.controls.adapt_step_size:
+            return self.controls.initial_step_size
+        with self._jax.disable_jit():
+            _finite_scalar(adaptation.log_step_size_avg, "averaged log step size")
+            capped = adaptation._replace(
+                log_step_size_avg=self._jnp.minimum(
+                    adaptation.log_step_size_avg,
+                    np.log(self.controls.step_size_bounds[1]),
+                )
+            )
+            return self._bounded_step_size(self._adapt_final(capped))

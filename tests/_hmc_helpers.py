@@ -117,3 +117,29 @@ def make_problem(nmesh=4, cell="triangle"):
     except Exception:
         _release_problem(forward.problem)
         raise
+
+
+def gaussian_value_and_grad(mean, covariance):
+    """Exact Gaussian potential and force; likelihood subtracts ``0.5*z@z``.
+
+    This is a manufactured probability law for Hamiltonian qualification. The
+    returned full potential includes the unit Gaussian prior used by the split
+    dynamics; its residual likelihood may have indefinite curvature.
+    """
+    mean = np.array(mean, dtype=np.float64, copy=True)
+    covariance = np.array(covariance, dtype=np.float64, copy=True)
+    if mean.ndim != 1 or covariance.shape != (len(mean), len(mean)):
+        raise ValueError("Gaussian mean and covariance dimensions must agree.")
+    if not np.isfinite(mean).all() or not np.isfinite(covariance).all():
+        raise ValueError("Gaussian parameters must be finite.")
+    if not np.allclose(covariance, covariance.T, rtol=0, atol=1e-14):
+        raise ValueError("Gaussian covariance must be symmetric.")
+    np.linalg.cholesky(covariance)
+    precision = np.linalg.solve(covariance, np.eye(len(mean)))
+
+    def value_and_grad(z):
+        displacement = z - mean
+        gradient = precision @ displacement
+        return np.float64(0.5 * displacement @ gradient), gradient
+
+    return value_and_grad
