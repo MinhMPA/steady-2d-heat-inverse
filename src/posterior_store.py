@@ -63,6 +63,7 @@ def numerical_environment():
         "scipy",
         "fenics-dolfinx",
         "fenics-basix",
+        "fenics-ffcx",
         "fenics-ufl",
         "petsc4py",
         "mpi4py",

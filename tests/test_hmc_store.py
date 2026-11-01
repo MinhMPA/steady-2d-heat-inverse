@@ -620,3 +620,28 @@ def test_numpy_integer_selection_matches_python_draw_indices(
                 actual_row.inferred_coordinates, expected_row.inferred_coordinates
             )
             assert_tree(actual_row.h, expected_row.h)
+
+
+def test_changed_form_compiler_version_rejects_continuation(tmp_path, monkeypatch):
+    import posterior_store
+
+    actual_version = posterior_store.importlib.metadata.version
+    actual_ffcx = actual_version("fenics-ffcx")
+    original_environment = posterior_store.numerical_environment()
+    path = tmp_path / "run"
+    with RunStore.create(path, problem=problem_record(), run_metadata=metadata()):
+        pass
+
+    def changed_version(name):
+        if name == "fenics-ffcx":
+            return actual_ffcx + "+changed-form-compiler"
+        return actual_version(name)
+
+    # FFCx constructs the discrete prior and heat/adjoint forms. Changing only
+    # that dependency must prevent continuation, while inspection stays portable.
+    monkeypatch.setattr(posterior_store.importlib.metadata, "version", changed_version)
+    with RunStore.open(path) as reader:
+        assert reader.problem_record.problem_id == problem_record().problem_id
+    with pytest.raises(ValueError, match="numerical|environment"):
+        RunStore.open(path, writable=True)
+    assert original_environment["versions"]["fenics-ffcx"] == actual_ffcx
