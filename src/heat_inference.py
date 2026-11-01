@@ -362,6 +362,257 @@ class HeatInverseProblem:
             message,
         )
 
+    def to_record(self):
+        r"""Freeze all physical inputs and numerical provenance for reconstruction.
+
+        This snapshot uses the owned frozen experiment, independent of subsequent
+        changes to the caller's source, conductivity or temperature fields.
+
+        Returns
+        -------
+        posterior_store.ProblemRecord
+            Every mesh node, evaluated source, actual boundary temperature,
+            measurement, Gaussian prior and fixed solver setting. Current caller
+            conductivity and temperature are excluded from the physical law.
+        """
+        from dataclasses import asdict
+        from posterior_store import ProblemRecord, numerical_environment
+
+        self._require_open()
+        model = self._model
+        environment = numerical_environment()
+        metadata = {
+            "schema_version": 1,
+            "model": {"cell_type": model.cell_type, "fingerprint": model.fingerprint},
+            "field_order": "lexicographic_physical_x_y",
+            "temperature_units": "K",
+            "conductivity_definition": "h=exp(log(h_ref)+m)",
+            "prior": self._prior.record(),
+            "coordinate_schema": {
+                name: list(shape)
+                for name, shape in self._prior.coordinate_schema.items()
+            },
+            "numerics": asdict(self._numerics),
+            "numerics_id": self.numerics_id,
+            "numerical_environment": environment,
+        }
+        arrays = {
+            name: getattr(model, name)
+            for name in (
+                "coordinates",
+                "cells",
+                "source",
+                "boundary_dofs",
+                "boundary_values",
+            )
+        }
+        arrays.update(
+            sensor_points=self._observations.points,
+            sensor_values=self._observations.values,
+            sensor_sigma=np.broadcast_to(
+                self._observations.sigma, self._observations.values.shape
+            ),
+        )
+        return ProblemRecord(
+            metadata,
+            arrays,
+            self.problem_id,
+            _digest({"solver": self.numerics_id, "environment": environment}),
+        )
+
+    @classmethod
+    def from_record(cls, record):
+        r"""Reconstruct the declared posterior, using only saved physical inputs.
+
+        Parameters
+        ----------
+        record : posterior_store.ProblemRecord
+            Frozen full-field experiment and fixed numerical settings.
+
+        Returns
+        -------
+        HeatInverseProblem
+            A problem with ``forward is None`` and independently owned heat and
+            adjoint workspaces. No original Python callable or JAX is required.
+        """
+        from dolfinx import fem
+        from posterior_store import ProblemRecord
+
+        if not isinstance(record, ProblemRecord):
+            raise TypeError("record must be a ProblemRecord.")
+        # Own inputs even when a caller subsequently changes its record object.
+        record = ProblemRecord(
+            record.metadata, record.arrays, record.problem_id, record.numerical_id
+        )
+        meta, arrays = record.metadata, record.arrays
+        if meta.get("schema_version") != 1:
+            raise ValueError("Unsupported physical problem schema version.")
+        if (
+            meta.get("field_order") != "lexicographic_physical_x_y"
+            or meta.get("temperature_units") != "K"
+            or meta.get("conductivity_definition") != "h=exp(log(h_ref)+m)"
+        ):
+            raise ValueError("Unsupported physical units or field ordering.")
+        required = {
+            "coordinates",
+            "cells",
+            "source",
+            "boundary_dofs",
+            "boundary_values",
+            "sensor_points",
+            "sensor_values",
+            "sensor_sigma",
+        }
+        if set(arrays) != required:
+            raise ValueError("Physical problem arrays are incomplete or unsupported.")
+        coordinates, cells = arrays["coordinates"], arrays["cells"]
+        cell_type = meta["model"]["cell_type"]
+        vertices = {"triangle": 3, "quadrilateral": 4}.get(cell_type)
+        if (
+            vertices is None
+            or coordinates.ndim != 2
+            or coordinates.shape[1] != 2
+            or len(coordinates) < vertices
+        ):
+            raise ValueError("Malformed physical mesh coordinates or cell type.")
+        order = np.lexsort((coordinates[:, 1], coordinates[:, 0]))
+        if not np.array_equal(order, np.arange(len(order))) or len(
+            np.unique(coordinates, axis=0)
+        ) != len(order):
+            raise ValueError(
+                "Physical mesh nodes must be unique and in canonical order."
+            )
+        if (
+            cells.dtype.kind not in "iu"
+            or cells.ndim != 2
+            or cells.shape[1] != vertices
+            or len(cells) == 0
+            or np.any(cells < 0)
+            or np.any(cells >= len(coordinates))
+        ):
+            raise ValueError("Malformed physical mesh connectivity or indices.")
+        if any(len(np.unique(cell)) != vertices for cell in cells):
+            raise ValueError("A physical cell cannot repeat a vertex.")
+        if len(np.unique(np.sort(cells, axis=1), axis=0)) != len(cells):
+            raise ValueError("Physical cells cannot be duplicated.")
+        xy = coordinates[cells]
+        u, v = xy[:, 1] - xy[:, 0], xy[:, 2] - xy[:, 0]
+        area = u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]
+        if np.any(area == 0):
+            raise ValueError("Physical cells must have nonzero area.")
+        if cell_type == "quadrilateral" and not np.allclose(
+            xy[:, 0] + xy[:, 3], xy[:, 1] + xy[:, 2], rtol=0, atol=1e-14
+        ):
+            raise ValueError("Physical quadrilateral cells must be affine.")
+        dofs = arrays["boundary_dofs"]
+        if (
+            dofs.dtype.kind not in "iu"
+            or dofs.ndim != 1
+            or not len(dofs)
+            or np.any(dofs < 0)
+            or np.any(dofs >= len(coordinates))
+            or np.any(np.diff(dofs.astype(np.int64)) <= 0)
+        ):
+            raise ValueError("Malformed physical boundary indices.")
+        if (
+            arrays["source"].shape != (len(coordinates),)
+            or arrays["boundary_values"].shape != dofs.shape
+        ):
+            raise ValueError(
+                "Physical source/boundary field length disagrees with the mesh."
+            )
+        model = FrozenHeatModel(
+            coordinates,
+            cells,
+            cell_type,
+            arrays["source"],
+            dofs,
+            arrays["boundary_values"],
+        )
+        if model.fingerprint != meta["model"]["fingerprint"]:
+            raise ValueError("Physical heat model identity mismatch.")
+        observations = TemperatureObservations(
+            arrays["sensor_points"], arrays["sensor_values"], arrays["sensor_sigma"]
+        )
+        numerics = HeatNumerics(**meta["numerics"])
+        numerics_id = _digest(meta["numerics"])
+        if numerics_id != meta["numerics_id"] or record.numerical_id != _digest(
+            {"solver": numerics_id, "environment": meta["numerical_environment"]}
+        ):
+            raise ValueError("Numerical identity mismatch in physical problem record.")
+        prior_record = meta["prior"]
+        if prior_record.get("family") != "gaussian_log_conductivity":
+            raise ValueError("Unsupported physical conductivity prior family.")
+        if np.shape(prior_record["mu"]) != (len(coordinates),):
+            raise ValueError("Prior mean must retain every physical node.")
+        instance = cls.__new__(cls)
+        instance._closed = False
+        instance._workspaces = []
+        instance._forward = None
+        try:
+            instance._model = model
+            instance._observations = observations
+            instance._numerics = numerics
+            domain = model._build_mesh()
+            V = fem.functionspace(domain, ("Lagrange", 1))
+            prior = GaussianLogConductivity(
+                mu=NodalField(prior_record["mu"], model.coordinates),
+                kappa=prior_record["kappa"],
+                tau=prior_record["tau"],
+                h_ref=prior_record["h_ref"],
+            )
+            instance._prior = prior.bind(model, V)
+            if instance._prior.record() != prior_record or meta[
+                "coordinate_schema"
+            ] != {
+                name: list(shape)
+                for name, shape in instance._prior.coordinate_schema.items()
+            }:
+                raise ValueError(
+                    "Gaussian prior identity or complete coordinate schema mismatch."
+                )
+            instance._problem_id = _digest(
+                {
+                    "physical_model": model.fingerprint,
+                    "sensor_points": observations.points.tolist(),
+                    "sensor_values": observations.values.tolist(),
+                    "sensor_sigma": np.broadcast_to(
+                        observations.sigma, observations.values.shape
+                    ).tolist(),
+                    "prior": instance._prior.record(),
+                    "coordinate_schema": instance._prior.coordinate_schema,
+                }
+            )
+            if instance.problem_id != record.problem_id:
+                raise ValueError("Physical posterior identity mismatch.")
+            instance._numerics_id = numerics_id
+            instance._posterior = instance._new_posterior(
+                prefix=f"loaded_heat_inference_{next(_PREFIXES)}_"
+            )
+            return instance
+        except BaseException:
+            instance.close()
+            raise
+
+    @classmethod
+    def load(cls, output):
+        r"""Load the frozen physical posterior from a saved calculation directory.
+
+        Parameters
+        ----------
+        output : path-like
+            Directory created by ``RunStore.create``.
+
+        Returns
+        -------
+        HeatInverseProblem
+            Reconstructed posterior owning only private physical workspaces.
+        """
+        from posterior_store import RunStore
+
+        with RunStore.open(output) as store:
+            return cls.from_record(store.problem_record)
+
     def close(self) -> None:
         r"""Release owned posterior workspaces, preserving the caller heat model.
 

@@ -52,6 +52,7 @@ py-modules = [
   "conductivity_prior",
   "conductivity_posterior",
   "heat_inference",
+  "posterior_store",
   "hmc_blackjax",
   "temperature_observations",
   "adjoint_solver",
