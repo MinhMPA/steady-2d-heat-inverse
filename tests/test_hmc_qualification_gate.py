@@ -29,41 +29,68 @@ def run_gate_child(code, *, qualification=False):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_core_collection_skips_sampling_before_importing_optional_dependencies():
-    run_gate_child("""
+@pytest.mark.parametrize("python_version", [(3, 11, 0), (3, 12, 0)])
+def test_core_collection_skips_sampling_for_legacy_and_sampling_python(python_version):
+    run_gate_child(f"""
         import importlib.abc
         import runpy
         import sys
+        from types import SimpleNamespace
         import pytest
-        attempted = []
+        import hmc_blackjax
+        # Keep the simulated version local to this validator, not library globals.
+        hmc_blackjax.sys = SimpleNamespace(version_info={python_version!r})
+        attempted_imports, attempted_validation = [], []
         class MissingSampling(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path, target=None):
-                if fullname.split(".")[0] in {"jax", "jaxlib", "blackjax"}:
-                    attempted.append(fullname)
+                if fullname.split(".")[0] in {{"jax", "jaxlib", "blackjax"}}:
+                    attempted_imports.append(fullname)
                     raise ModuleNotFoundError(fullname)
         sys.meta_path.insert(0, MissingSampling())
+        def require_environment():
+            attempted_validation.append(True)
+            raise AssertionError("Core collection requested sampling qualification.")
+        hmc_blackjax.require_sampling_environment = require_environment
         with pytest.raises(pytest.skip.Exception) as exc:
             runpy.run_path(sys.argv[1])
         assert "S2DHI_HMC_QUALIFICATION=1" in str(exc.value)
-        assert not attempted
-        assert "hmc_blackjax" not in sys.modules
-    """)
+        assert not attempted_imports
+        assert not attempted_validation
+        """)
 
 
-def test_requested_qualification_cannot_skip_missing_sampling_dependencies():
+@pytest.mark.parametrize(
+    "python_version, error_name, message",
+    [
+        ((3, 11, 0), "RuntimeError", "sampling requires Python 3.12"),
+        ((3, 12, 0), "ImportError", "sampling"),
+    ],
+)
+def test_requested_qualification_reports_version_or_missing_dependencies(
+    python_version, error_name, message
+):
     run_gate_child(
-        """
+        f"""
         import importlib.abc
         import runpy
         import sys
+        from types import SimpleNamespace
         import pytest
+        import hmc_blackjax
+        hmc_blackjax.sys = SimpleNamespace(version_info={python_version!r})
+        attempted = []
         class MissingSampling(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path, target=None):
-                if fullname.split(".")[0] in {"jax", "jaxlib", "blackjax"}:
+                if fullname.split(".")[0] in {{"jax", "jaxlib", "blackjax"}}:
+                    attempted.append(fullname)
                     raise ModuleNotFoundError(fullname)
         sys.meta_path.insert(0, MissingSampling())
-        with pytest.raises(ImportError, match="sampling"):
+        with pytest.raises({error_name}, match={message!r}):
             runpy.run_path(sys.argv[1])
+        if {python_version!r} < (3, 12):
+            assert not attempted
+        else:
+            assert attempted
         """,
         qualification=True,
     )
