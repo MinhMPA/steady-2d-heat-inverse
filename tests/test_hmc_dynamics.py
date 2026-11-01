@@ -310,6 +310,7 @@ def test_dual_averaging_matches_pinned_routine_and_caps_size():
     initial = manual.begin_warmup()
     assert_same_state(manual.adapt(initial, 0.1), initial)
     assert manual.final_step_size(initial) == 0.2
+    assert manual.current_step_size(initial) == 0.2
 
 
 def test_dual_averaging_reports_below_bound_with_evidence():
@@ -428,3 +429,79 @@ def test_finite_enormous_averaged_spacing_caps_and_tiny_average_fails_with_evide
     with pytest.raises(ValueError, match="lower bound") as caught:
         chain.final_step_size(state)
     assert repr(lower) in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "bounds,initial",
+    [
+        ((1e-6, 0.1), 0.1),
+        ((0.1, 0.2), 0.1),
+        ((0.1, 0.1), 0.1),
+        ((0.3, 0.3), 0.3),
+        ((0.1, np.nextafter(0.1, np.inf)), 0.1),
+        ((1e-200, 1e-199), 1e-200),
+    ],
+)
+def test_current_final_and_transition_share_exact_recorded_spacing_bounds(
+    bounds, initial
+):
+    chain = BlackJAXChain(
+        gaussian_value_and_grad(np.zeros(2), np.eye(2)),
+        HMCControls(initial_step_size=initial, step_size_bounds=bounds),
+    )
+    state = chain.initialize(np.array([0.2, -0.3]))
+    adaptation = chain.adapt(chain.begin_warmup(), 1.0)
+    # Reproduce the .1 upper cap through the physical transition first: the
+    # stored log field need not exponentiate to an exactly representable bound.
+    raw_spacing = float(jnp.exp(adaptation.log_step_size))
+    chain.transition(state, key=jax.random.key(81), step_size=raw_spacing, num_steps=2)
+    for boundary in bounds:
+        at_boundary = adaptation._replace(
+            log_step_size=jnp.asarray(np.log(boundary)),
+            log_step_size_avg=jnp.asarray(np.log(boundary)),
+        )
+        for spacing in (
+            chain.current_step_size(at_boundary),
+            chain.final_step_size(at_boundary),
+        ):
+            assert bounds[0] <= spacing <= bounds[1]
+            chain.transition(
+                state, key=jax.random.key(82), step_size=spacing, num_steps=2
+            )
+    assert bounds[0] <= chain.current_step_size(adaptation) <= bounds[1]
+
+
+@pytest.mark.parametrize(
+    "bounds", [(1e-6, 0.1), (0.1, 0.1), (0.1, np.nextafter(0.1, np.inf))]
+)
+def test_transition_snaps_only_roundoff_excursions_to_actual_boundaries(bounds):
+    chain = BlackJAXChain(
+        gaussian_value_and_grad(np.zeros(2), np.eye(2)),
+        HMCControls(initial_step_size=bounds[1], step_size_bounds=bounds),
+    )
+    state = chain.initialize(np.array([0.2, -0.3]))
+    for offered, canonical in [
+        (np.nextafter(bounds[0], 0), bounds[0]),
+        (np.nextafter(bounds[1], np.inf), bounds[1]),
+    ]:
+        key = jax.random.key(999)
+        actual = chain.transition(state, key=key, step_size=offered, num_steps=3)
+        expected = chain.transition(state, key=key, step_size=canonical, num_steps=3)
+        assert_same_state(actual.state, expected.state)
+        assert actual.initial_energy == expected.initial_energy
+        assert actual.final_energy == expected.final_energy
+        assert actual.acceptance_probability == expected.acceptance_probability
+    for offered in [0.0, -bounds[0], bounds[0] * (1 - 1e-8), bounds[1] * (1 + 1e-8)]:
+        with pytest.raises(ValueError):
+            chain.transition(
+                state, key=jax.random.key(999), step_size=offered, num_steps=3
+            )
+    lower = bounds[0]
+    genuinely_too_small = chain.begin_warmup()._replace(
+        log_step_size=jnp.asarray(np.log(lower) - 1e-8),
+        log_step_size_avg=jnp.asarray(np.log(lower) - 1e-8),
+    )
+    with pytest.raises(ValueError, match="lower bound"):
+        chain.current_step_size(genuinely_too_small)
+    with pytest.raises(ValueError, match="lower bound"):
+        chain.final_step_size(genuinely_too_small)

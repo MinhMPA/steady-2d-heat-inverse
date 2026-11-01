@@ -451,10 +451,7 @@ class BlackJAXChain:
             Copied new or repeated state, acceptance and energy diagnostics.
             An unconverged heat or adjoint solve propagates to the caller.
         """
-        step_size = _finite_scalar(step_size, "step_size")
-        lower, upper = self.controls.step_size_bounds
-        if not lower <= step_size <= upper:
-            raise ValueError("Trajectory step size must lie within recorded bounds.")
+        step_size = self._bounded_step_size(step_size, cap_upper=False)
         if (
             isinstance(num_steps, bool)
             or not isinstance(num_steps, Integral)
@@ -559,15 +556,59 @@ class BlackJAXChain:
         with self._jax.disable_jit():
             return self._adapt_init(self.controls.initial_step_size)
 
-    def _bounded_step_size(self, proposed):
+    def _bounded_step_size(self, proposed, *, cap_upper=True):
         lower, upper = self.controls.step_size_bounds
-        proposed = float(proposed)
-        if not np.isfinite(proposed) or proposed < lower:
+        proposed = _finite_scalar(proposed, "step_size")
+
+        def roundoff(bound):
+            # A logarithm's absolute rounding error propagates to relative
+            # spacing error on exponentiation. Keep only a few such errors,
+            # with a few-ULP floor for normal values. A subnormal ULP can be
+            # a material fraction of its bound, so it gets no absolute floor.
+            precision = np.finfo(np.float64)
+            tolerance = 4 * precision.eps * max(1.0, abs(np.log(bound))) * bound
+            if bound >= precision.tiny:
+                tolerance = max(tolerance, 4 * np.spacing(bound))
+            return tolerance
+
+        # Reject zero/negative spacings before any boundary normalization.
+        if proposed > 0 and proposed < lower and lower - proposed <= roundoff(lower):
+            proposed = lower
+        if proposed <= 0 or proposed < lower:
             raise ValueError(
-                f"Required step size {proposed!r} is below the lower bound {lower!r} "
-                "or nonfinite; inspect warmup acceptance and physical force scales."
+                f"Required step size {proposed!r} is below the lower bound {lower!r}; "
+                "inspect warmup acceptance and physical force scales."
             )
-        return min(proposed, upper)
+        if proposed > upper:
+            if cap_upper or proposed - upper <= roundoff(upper):
+                return upper
+            raise ValueError("Trajectory step size must lie within recorded bounds.")
+        return proposed
+
+    def current_step_size(self, adaptation):
+        """Return the physical spacing for the next warmup trajectory.
+
+        Parameters
+        ----------
+        adaptation : DualAveragingAdaptationState
+            Complete current warmup state, containing the proposed log spacing.
+
+        Returns
+        -------
+        float
+            Spacing within the exact recorded bounds, with logarithmic
+            roundoff normalized to the violated boundary. Manual controls
+            return the explicitly chosen spacing. Callers record this value
+            rather than interpreting the library's logarithmic field.
+        """
+        if not self.controls.adapt_step_size:
+            return self.controls.initial_step_size
+        with self._jax.disable_jit():
+            _finite_scalar(adaptation.log_step_size, "proposed log step size")
+            capped_log_size = self._jnp.minimum(
+                adaptation.log_step_size, np.log(self.controls.step_size_bounds[1])
+            )
+            return self._bounded_step_size(self._jnp.exp(capped_log_size))
 
     def adapt(self, adaptation, acceptance_probability):
         """Update warmup and cap the next Hamiltonian integration spacing.
@@ -592,13 +633,12 @@ class BlackJAXChain:
             return adaptation
         with self._jax.disable_jit():
             updated = self._adapt_update(adaptation, probability)
-            _finite_scalar(updated.log_step_size, "proposed log step size")
+            self.current_step_size(updated)
             # Cap in logarithmic coordinates before exponentiation: a finite
             # warmup proposal may have an unrepresentably large exponential.
             capped_log_size = self._jnp.minimum(
                 updated.log_step_size, np.log(self.controls.step_size_bounds[1])
             )
-            self._bounded_step_size(self._jnp.exp(capped_log_size))
             return updated._replace(log_step_size=capped_log_size)
 
     def final_step_size(self, adaptation):

@@ -54,13 +54,17 @@ def batch_estimates(draws, mean):
     )
 
 
-@pytest.mark.parametrize("covariance", TARGETS, ids=["independent", "correlated"])
+@pytest.mark.parametrize(
+    "mean,covariance",
+    [(np.zeros(3), np.eye(3)), (MEAN, TARGETS[0]), (MEAN, TARGETS[1])],
+    ids=["prior-only", "independent", "correlated"],
+)
 def test_seeded_four_chain_means_covariances_and_batch_mcse(
-    covariance, record_property
+    mean, covariance, record_property
 ):
     started = time.perf_counter()
     chain = BlackJAXChain(
-        gaussian_value_and_grad(MEAN, covariance),
+        gaussian_value_and_grad(mean, covariance),
         HMCControls(initial_step_size=0.3, adapt_step_size=False),
     )
     samples = np.empty((4, DRAWS, 3))
@@ -71,7 +75,7 @@ def test_seeded_four_chain_means_covariances_and_batch_mcse(
         # stream; all momentum and Metropolis randomness stays in BlackJAX.
         host_random = np.random.default_rng(seed + 100000)
         state = chain.initialize(
-            MEAN + 2 * np.sqrt(np.diag(covariance)) * host_random.normal(size=3)
+            mean + 2 * np.sqrt(np.diag(covariance)) * host_random.normal(size=3)
         )
         for draw in range(BURN + DRAWS):
             key, transition_key = jax.random.split(key)
@@ -84,8 +88,8 @@ def test_seeded_four_chain_means_covariances_and_batch_mcse(
             divergent += transition.divergent
             if draw >= BURN:
                 samples[index, draw - BURN] = state.position
-    estimate, mcse = batch_estimates(samples, MEAN)
-    target = np.concatenate([MEAN, covariance.ravel()])
+    estimate, mcse = batch_estimates(samples, mean)
+    target = np.concatenate([mean, covariance.ravel()])
     assert np.all(np.abs(estimate - target) <= 5 * mcse), (estimate, target, mcse)
     # Also check the usual sample covariance, rather than only exact-centered
     # second moments used to estimate its Monte Carlo uncertainty.
@@ -101,7 +105,7 @@ def test_seeded_four_chain_means_covariances_and_batch_mcse(
         ]
     )
     assert np.all(mcse / scales < 0.12), mcse / scales
-    _, half_mcse = batch_estimates(samples[:, : DRAWS // 2], MEAN)
+    _, half_mcse = batch_estimates(samples[:, : DRAWS // 2], mean)
     # Doubling the draws must reduce the overall estimated uncertainty, with
     # finite-batch allowance around the asymptotic 1/sqrt(2) scaling.
     assert 0.45 < np.linalg.norm(mcse) / np.linalg.norm(half_mcse) < 0.95
