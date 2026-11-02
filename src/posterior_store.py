@@ -36,6 +36,7 @@ _NUMERICAL_MODULES = (
     "hmc_blackjax",
     "hmc_run",
     "posterior_store",
+    "native_provenance",
 )
 
 
@@ -58,6 +59,8 @@ def numerical_environment():
         precision/backend settings and thread controls, independent of import
         order. Actual sampling-environment qualification remains separate.
     """
+    import native_provenance
+
     versions = {}
     for name in (
         "numpy",
@@ -85,6 +88,7 @@ def numerical_environment():
         "float64_bits": np.finfo(np.float64).bits,
         "versions": versions,
         "sqlite": sqlite3.sqlite_version,
+        "native_builds": native_provenance.native_build_identity(),
         "sources": {
             name: hashlib.sha256((directory / (name + ".py")).read_bytes()).hexdigest()
             for name in _NUMERICAL_MODULES

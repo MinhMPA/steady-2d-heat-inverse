@@ -27,6 +27,7 @@ theory
 usage
 testing
 hmc
+validation/hmc-numerics
 api/index
 ```
 
