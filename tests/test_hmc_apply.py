@@ -52,6 +52,7 @@ def test_apply_promotes_constant_and_rejects_changed_source(saved_known_run):
         assert np.allclose(
             coerce_field(result, FrozenHeatModel.from_forward(forward)),
             samples.temperature(chain=0, draw=0),
+            rtol=0,
             atol=2e-9,
         )
         forward.q.function.value = 9.0

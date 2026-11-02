@@ -249,6 +249,7 @@ def test_private_temperature_matches_saved_sensors_and_preserves_caller(
             assert np.allclose(
                 temperature,
                 coerce_field(forward.T, FrozenHeatModel.from_forward(forward)),
+                rtol=0,
                 atol=2e-9,
             )
             assert np.array_equal(samples.sensor_predictions(chain=0)[2], sensors[0, 2])
