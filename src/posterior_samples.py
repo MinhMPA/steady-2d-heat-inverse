@@ -30,6 +30,20 @@ def _index(value, name, *, minimum=0):
     return int(value)
 
 
+def _probabilities(quantiles):
+    probabilities = np.asarray(quantiles)
+    if (
+        probabilities.ndim != 1
+        or np.iscomplexobj(probabilities)
+        or probabilities.dtype.kind not in "biuf"
+        or not np.isfinite(probabilities).all()
+        or np.any((probabilities < 0) | (probabilities > 1))
+    ):
+        raise ValueError("Quantile probabilities must be a finite vector in [0,1].")
+    probabilities = probabilities.astype(float)
+    return probabilities
+
+
 @dataclass(frozen=True)
 class FieldSummary:
     """Pooled pointwise physical conductivity statistics over retained states.
@@ -252,16 +266,7 @@ class PosteriorSamples:
             qualification remains False until diagnostics are available.
         """
         width = _index(node_chunk_size, "node_chunk_size", minimum=1)
-        probabilities = np.asarray(quantiles)
-        if (
-            probabilities.ndim != 1
-            or np.iscomplexobj(probabilities)
-            or probabilities.dtype.kind not in "biuf"
-            or not np.isfinite(probabilities).all()
-            or np.any((probabilities < 0) | (probabilities > 1))
-        ):
-            raise ValueError("Quantile probabilities must be a finite vector in [0,1].")
-        probabilities = probabilities.astype(float)
+        probabilities = _probabilities(quantiles)
         counts = self._counts()
         total = int(counts.sum())
         if total == 0:
@@ -280,9 +285,43 @@ class PosteriorSamples:
             mean[begin:end] = block.mean(axis=0)
             sd[begin:end] = block.std(axis=0, ddof=0)
             limits[:, begin:end] = np.quantile(block, probabilities, axis=0)
+        from posterior_diagnostics import matching_qualification
+
+        qualified = matching_qualification(self, probabilities, counts)
         return FieldSummary(
-            mean, sd, limits, probabilities, self.coordinates, counts, False, self.cells
+            mean,
+            sd,
+            limits,
+            probabilities,
+            self.coordinates,
+            counts,
+            qualified,
+            self.cells,
         )
+
+    def diagnostics(self, *, node_chunk_size=64, quantiles=(0.05, 0.5, 0.95)):
+        """Assess saved conductivity and sensor convergence and save the evidence.
+
+        Parameters
+        ----------
+        node_chunk_size : int
+            Positive maximum number of variables inspected together, retaining
+            every chain and draw. No whole-field history is implicitly loaded.
+        quantiles : sequence of float
+            Report Monte Carlo errors at these physical quantile probabilities;
+            defaults match summary. Endpoints 0/1 remain unqualified.
+
+        Returns
+        -------
+        posterior_diagnostics.DiagnosticReport
+            Explicit qualified, unqualified, incomplete or unavailable status,
+            physical statistics, counts, locations and reasons. The advisory JSON
+            report leaves chain states and numerical identity unchanged. Summary
+            only uses a saved report matching its history and probabilities.
+        """
+        from posterior_diagnostics import diagnose
+
+        return diagnose(self, node_chunk_size=node_chunk_size, quantiles=quantiles)
 
     def sensor_predictions(self, *, chain, start=0, stop=None):
         """Read retained predicted thermometer temperatures without a heat solve.
