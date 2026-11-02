@@ -6,7 +6,7 @@ random stream, or continuation state is changed. The JSON report is advisory.
 """
 
 # type imports
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
 
@@ -17,7 +17,7 @@ import numpy as np
 from posterior_store import _atomic_file, _problem_content_digest
 
 PACKAGE_VERSION = "1.3.3"
-POLICY_VERSION = 2
+POLICY_VERSION = 3
 REPORT_FILE = "diagnostics.json"
 STATISTICS = (
     "rank_split_rhat",
@@ -40,6 +40,13 @@ class DiagnosticReport:
     ``common_draws`` labels the inspected common prefix; unequal or unfinished
     chains never qualify the requested full calculation. Analytically fixed
     boundary sensors have undefined R-hat/ESS and exactly zero Monte Carlo errors.
+    ``qualified`` certifies only the specified chain-convergence criteria.
+    ``fixed_sensor_consistency`` separately records prescribed-temperature
+    references, raw observed ranges and residuals over ``common_draws``. Nonzero
+    residuals have unverified numerical consistency: the saved readings lack the
+    full temperature field needed to bound interpolation-error amplification.
+    Convergence qualification does not resolve that status; numerical accuracy
+    qualification must inspect it separately. Raw predictions are never changed.
     ``persisted`` says whether the advisory report was successfully saved.
     """
 
@@ -57,6 +64,7 @@ class DiagnosticReport:
     identity: dict
     settings: dict
     persisted: bool = False
+    fixed_sensor_consistency: list = field(default_factory=list)
 
 
 def qualify_diagnostics(
@@ -268,7 +276,7 @@ def _prescribed_geometry(coordinates, cells, boundary_dofs, points):
     return result
 
 
-def _physical_observables(record):
+def _physical_observables(record, *, include_fixed_temperatures=False):
     """Integrate the authoritative P1/Q1 interpolation over physical regions.
 
     Three degree-two quadrature points per subtriangle integrate P1 and affine
@@ -276,7 +284,9 @@ def _physical_observables(record):
     line. All basis evaluations use SensorOperator; it also identifies sensors
     on analytically constrained traces, with roundoff-only free-DOF support.
     Returns normalized mean/contrast weights in canonical node order, then the
-    prescribed-temperature sensor flags. No heat equation is solved.
+    prescribed-temperature sensor flags. With include_fixed_temperatures=True,
+    also return boundary-interpolated reference values (NaN for inferred sensors).
+    No heat equation is solved.
     """
     from dolfinx import fem
     from heat_model import FrozenHeatModel, canonical_dof_indices
@@ -351,7 +361,20 @@ def _physical_observables(record):
     residual = np.asarray(abs(sensor[:, free]).sum(axis=1)).reshape(-1)
     scale = np.asarray(abs(sensor).sum(axis=1)).reshape(-1)
     fixed = analytic & (scale > 0) & (residual <= 64 * np.finfo(float).eps * scale)
-    return weights, fixed
+    if not include_fixed_temperatures:
+        return weights, fixed
+    reference = np.full(len(fixed), np.nan)
+    constrained = sensor[:, order[arrays["boundary_dofs"]]]
+    for index in np.flatnonzero(fixed):
+        row = constrained.getrow(index)
+        boundary_values = arrays["boundary_values"][row.indices]
+        if np.all(boundary_values == boundary_values[0]):
+            reference[index] = boundary_values[0]
+        else:
+            # Analytic free support is zero. Restore partition of unity after
+            # discarding only the separately checked roundoff free support.
+            reference[index] = (row.data @ boundary_values) / row.data.sum()
+    return weights, fixed, reference
 
 
 def _quantity_statistics(backend, values, probabilities, fixed):
@@ -364,11 +387,17 @@ def _quantity_statistics(backend, values, probabilities, fixed):
     if values.shape[1]:
         constant = np.all(values == values[0, 0], axis=(0, 1))
     statistics["constant"] = constant
-    # Fixed sensors require no stochastic error estimate. A changing recorded
-    # temperature cannot be excused by this analytic designation.
-    consistent_fixed = fixed & constant
-    statistics["mean_mcse"][consistent_fixed] = 0.0
-    statistics["quantile_mcse"][:, consistent_fixed] = 0.0
+    statistics["raw_minimum"] = (
+        values.min(axis=(0, 1)) if values.shape[1] else np.full(count, np.nan)
+    )
+    statistics["raw_maximum"] = (
+        values.max(axis=(0, 1)) if values.shape[1] else np.full(count, np.nan)
+    )
+    # Prescribed temperatures have mathematically zero stochastic uncertainty.
+    # Their stored interpolation residual is separate numerical evidence, not
+    # stochastic variation and not a bound on the accuracy of the heat solve.
+    statistics["mean_mcse"][fixed] = 0.0
+    statistics["quantile_mcse"][:, fixed] = 0.0
     if values.shape[1] < 4:
         return statistics
     active = ~fixed & ~constant & np.isfinite(values).all(axis=(0, 1))
@@ -395,6 +424,34 @@ def _quantity_statistics(backend, values, probabilities, fixed):
                 block, method="quantile", prob=probability, **kw
             )
     return statistics
+
+
+def _fixed_sensor_evidence(record, statistics, reference):
+    """Expose numerical disagreement without guessing an unavailable bound."""
+    evidence = []
+    for index in np.flatnonzero(statistics["analytically_fixed"]):
+        low = statistics["raw_minimum"][index]
+        high = statistics["raw_maximum"][index]
+        expected = reference[index]
+        residual = max(abs(low - expected), abs(high - expected))
+        if not np.isfinite([low, high, expected]).all():
+            status = "unavailable"
+        elif residual == 0:
+            status = "exact_agreement"
+        else:
+            status = "unverified_discrepancy"
+        evidence.append(
+            dict(
+                sensor=int(index),
+                location=record.arrays["sensor_points"][index].tolist(),
+                boundary_reference=float(expected),
+                observed_minimum=float(low),
+                observed_maximum=float(high),
+                maximum_absolute_residual=float(residual),
+                status=status,
+            )
+        )
+    return _lists(evidence)
 
 
 def _lists(value):
@@ -574,7 +631,9 @@ def diagnose(samples, *, node_chunk_size=64, quantiles=(0.05, 0.5, 0.95)):
                 ],
             ),
         )
-    weights, fixed = _physical_observables(samples._record)
+    weights, fixed, fixed_temperatures = _physical_observables(
+        samples._record, include_fixed_temperatures=True
+    )
     quantities = {}
 
     def evaluate(name, size, locations, flags, read):
@@ -638,10 +697,6 @@ def diagnose(samples, *, node_chunk_size=64, quantiles=(0.05, 0.5, 0.95)):
         active = ~values["analytically_fixed"]
         if np.any(values["constant"] & active):
             reasons.append(f"{name}: inferred quantity is accidentally constant.")
-        if np.any(values["analytically_fixed"] & ~values["constant"]):
-            reasons.append(
-                f"{name}: recorded sensor contradicts its prescribed fixed temperature."
-            )
         for statistic in (
             "rank_split_rhat",
             "folded_split_rhat",
@@ -661,6 +716,9 @@ def diagnose(samples, *, node_chunk_size=64, quantiles=(0.05, 0.5, 0.95)):
         worst_locations=_worst(quantities, probabilities),
         divergences=divergences,
         reasons=reasons,
+        fixed_sensor_consistency=_fixed_sensor_evidence(
+            samples._record, quantities["sensor_temperature"], fixed_temperatures
+        ),
     )
     return _persist(samples, report)
 

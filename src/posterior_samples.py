@@ -65,7 +65,9 @@ class FieldSummary:
         Retained count per chain, preserving evidence of unequal partial runs.
         Statistics pool all these states; longer chains contribute more states.
     qualified : bool
-        False until convergence diagnostics have separately qualified the run.
+        True only after a matching report qualifies chain convergence. This
+        does not certify numerical prediction accuracy: inspect that report's
+        fixed_sensor_consistency separately for unresolved boundary residuals.
     """
 
     mean: np.ndarray
@@ -318,6 +320,10 @@ class PosteriorSamples:
             physical statistics, counts, locations and reasons. The advisory JSON
             report leaves chain states and numerical identity unchanged. Summary
             only uses a saved report matching its history and probabilities.
+            Qualification concerns chain convergence. The separate
+            fixed_sensor_consistency evidence retains raw boundary residuals;
+            nonzero residuals remain unverified numerical discrepancies even
+            when the chains qualify. Numerical accuracy requires separate review.
         """
         from posterior_diagnostics import diagnose
 

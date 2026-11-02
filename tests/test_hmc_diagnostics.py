@@ -63,19 +63,19 @@ def test_qualification_thresholds_are_strict_and_missing_values_fail():
     assert qualify_diagnostics(**fixed)[0]
 
 
-def make_record(nmesh=3, cell="triangle", points=None):
+def make_record(nmesh=3, cell="triangle", points=None, bottom=300.0):
     from conductivity_prior import GaussianLogConductivity
     from heat_inference import HeatInverseProblem
     from temperature_observations import TemperatureObservations
 
     if points is None:
         points = np.array([[0.25, 0.0], [0.37, 0.61]])
-    forward = make_forward(nmesh=nmesh, cell=cell)
+    forward = make_forward(nmesh=nmesh, cell=cell, bottom=bottom)
     try:
         with HeatInverseProblem(
             forward=forward,
             observations=TemperatureObservations(
-                points, np.full(len(points), 300.0), 0.05
+                points, np.full(len(points), bottom), 0.05
             ),
             prior=GaussianLogConductivity(mu=0, kappa=2, tau=1, h_ref=1),
         ) as problem:
@@ -84,13 +84,15 @@ def make_record(nmesh=3, cell="triangle", points=None):
         _release_problem(forward.problem)
 
 
-def save_manufactured(path, *, lengths=(1024,) * 4, divergent=False, seed=513):
+def save_manufactured(
+    path, *, lengths=(1024,) * 4, divergent=False, seed=513, fixed_offset=0.0
+):
     """Random physical arrays exercise bookkeeping, not posterior correctness."""
     record = make_record(nmesh=1)
     rng = np.random.default_rng(seed)
     h = np.exp(0.1 * rng.normal(size=(len(lengths), max(lengths), 4)))
     sensor = 300 + rng.normal(size=(len(lengths), max(lengths), 2))
-    sensor[:, :, 0] = 300
+    sensor[:, :, 0] = 300 + fixed_offset
     initial = [
         ChainCheckpoint(
             c,
@@ -213,6 +215,11 @@ def test_every_physical_quantity_matches_pinned_package(saved, monkeypatch):
         assert report.package_version == "1.3.3"
         assert report.status == "qualified", report.reasons
         assert report.qualified
+        fixed_evidence = report.fixed_sensor_consistency[0]
+        assert fixed_evidence["sensor"] == 0
+        assert fixed_evidence["boundary_reference"] == 300.0
+        assert fixed_evidence["maximum_absolute_residual"] == 0.0
+        assert fixed_evidence["status"] == "exact_agreement"
         assert report.probabilities == [0.1, 0.9]
         assert report.counts == [1024] * 4
         weights, fixed = _physical_observables(samples._record)
@@ -411,6 +418,14 @@ def test_fixed_sensor_geometry_excludes_near_interior_points(cell):
     record = make_record(nmesh=3, cell=cell, points=points)
     _, fixed = _physical_observables(record)
     assert np.array_equal(fixed, [True, False, False, False, False])
+    stats = _quantity_statistics(None, np.ones((4, 4, 1)), [0.05, 0.95], fixed[1:2])
+    assert not qualify_diagnostics(
+        chains=4,
+        complete=True,
+        divergences=0,
+        analytically_fixed=fixed[1:2],
+        **{name: stats[name] for name in ("rhat", "bulk_ess", "tail_ess")},
+    )[0]
 
 
 def test_exact_prescribed_node_edge_and_cell_membership():
@@ -471,3 +486,79 @@ def test_interrupted_initialization_has_explicit_incomplete_diagnostics(tmp_path
         assert not report.qualified
         assert report.counts == [0] * 4
         assert report.identity["run_digest"]
+
+
+@pytest.mark.parametrize("cell", ["triangle", "quadrilateral"])
+@pytest.mark.parametrize("bottom", [0.0, 300.0])
+def test_real_fixed_boundary_predictions_have_zero_sampling_error(cell, bottom):
+    from heat_inference import HeatInverseProblem
+
+    record = make_record(nmesh=3, cell=cell, bottom=bottom)
+    _, fixed = _physical_observables(record)
+    readings = []
+    with HeatInverseProblem.from_record(record) as problem:
+        for conductivity in (1.0, 2.0, 0.1, 1e-6):
+            _, sensors = problem.posterior.predict_h(
+                np.full(problem.posterior.prior.dimension, conductivity)
+            )
+            readings.append(sensors[0])
+    assert fixed[0]
+    # These real predictions reproduce the measured interpolation roundoff.
+    assert np.ptp(readings) > 0
+    values = np.tile(np.asarray(readings)[None, :, None], (4, 1, 1))
+    stats = _quantity_statistics(None, values, [0.05, 0.95], fixed[:1])
+    assert stats["mean_mcse"][0] == 0
+    assert np.array_equal(stats["quantile_mcse"][:, 0], [0.0, 0.0])
+    assert not stats["constant"][0]  # Raw numerical evidence must remain visible.
+    assert stats["raw_minimum"][0] == min(readings)
+    assert stats["raw_maximum"][0] == max(readings)
+    from posterior_diagnostics import _fixed_sensor_evidence
+
+    _, _, reference = _physical_observables(record, include_fixed_temperatures=True)
+    evidence = _fixed_sensor_evidence(record, stats, reference[:1])[0]
+    assert reference[0] == bottom
+    assert evidence["boundary_reference"] == bottom
+    assert evidence["maximum_absolute_residual"] == max(
+        abs(np.asarray(readings) - bottom)
+    )
+    assert evidence["status"] == "unverified_discrepancy"
+
+
+def test_substantive_fixed_sensor_disagreement_is_separate_unverified_evidence(
+    tmp_path,
+):
+    require_backend()
+    path = tmp_path / "numerical_discrepancy"
+    _, raw_sensor = save_manufactured(path, fixed_offset=1.0)
+    with PosteriorSamples.open(path) as samples:
+        report = samples.diagnostics()
+        assert report.qualified  # This is chain convergence, not numerical accuracy.
+        evidence = report.fixed_sensor_consistency[0]
+        assert evidence["sensor"] == 0
+        assert evidence["boundary_reference"] == 300.0
+        assert evidence["observed_minimum"] == evidence["observed_maximum"] == 301.0
+        assert evidence["maximum_absolute_residual"] == 1.0
+        assert evidence["status"] == "unverified_discrepancy"
+        assert np.array_equal(samples.sensor_predictions(chain=0), raw_sensor[0])
+        assert report.per_quantity["sensor_temperature"]["mean_mcse"][0] == 0.0
+        assert samples.summary().qualified
+    with PosteriorSamples.open(path) as samples:
+        import json
+
+        saved = json.loads((path / "diagnostics.json").read_text())
+        assert saved["fixed_sensor_consistency"][0] == evidence
+
+
+@pytest.mark.parametrize("cell", ["triangle", "quadrilateral"])
+def test_fixed_reference_interpolates_nonconstant_prescribed_temperature(cell):
+    record = make_record(nmesh=3, cell=cell)
+    boundary_x = record.arrays["coordinates"][record.arrays["boundary_dofs"], 0]
+    # A separate frozen boundary field tests the authoritative interpolation;
+    # no saved calculation or posterior identity is reused for sampling here.
+    record = replace(
+        record, arrays=record.arrays | {"boundary_values": 1 + 2 * boundary_x}
+    )
+    _, fixed, reference = _physical_observables(record, include_fixed_temperatures=True)
+    assert np.array_equal(fixed, [True, False])
+    assert np.isclose(reference[0], 1.5, rtol=0, atol=1e-14)
+    assert np.isnan(reference[1])
