@@ -60,6 +60,8 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         DBC_value       : Dirichlet BC for \lambda_L at the bottom, i.e. \lambda_L(y=0)=\lambda_{L,0}.
         petsc_opts      : Dictionary of PETSc options, copied from forward solver if None.
         """
+        self._forward = forward
+        self._forward_generation = forward.coefficient_generation
         # Copy forward solver attributes:
         ## mesh, function space, botom_dofs;
         self.mesh, self.V, self.bottom_dofs = (
@@ -114,6 +116,12 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
             petsc_options=opts,
         )
 
+    def _check_coefficient_generation(self):
+        if self._forward.coefficient_generation != self._forward_generation:
+            raise RuntimeError(
+                "The heat conductivity coefficient was replaced. Reconstruct the legacy adjoint with the current forward model."
+            )
+
     def solve(self) -> fem.Function:
         """
         Solve the adjoint equation on the domain, using the defined weak form and boundary conditions.
@@ -122,6 +130,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         -------
         lambda_L : the Lagrangian multiplier function, aka adjoint state vector.
         """
+        self._check_coefficient_generation()
         self.problem.solve()
         return self.lambda_L
 
@@ -133,6 +142,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         -------
         array-like : the assembled gradient vector dJ/dh.
         """
+        self._check_coefficient_generation()
         # Total derivative of the objective function J with respect to h:
         ## dJ/dh = (\lambda^T)\cdot g[T(h), h] + \partial J / partial h,
         ##       = -\nablaT\cdot\nabla\lambda + \alpha\lapl h.

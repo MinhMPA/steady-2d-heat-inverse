@@ -645,3 +645,36 @@ def test_changed_form_compiler_version_rejects_continuation(tmp_path, monkeypatc
     with pytest.raises(ValueError, match="numerical|environment"):
         RunStore.open(path, writable=True)
     assert original_environment["versions"]["fenics-ffcx"] == actual_ffcx
+
+
+@pytest.mark.parametrize(
+    "compiler_input",
+    [
+        "CC",
+        "CXX",
+        "CFLAGS",
+        "CPPFLAGS",
+        "CXXFLAGS",
+        "LDFLAGS",
+        "LDSHARED",
+        "CPATH",
+        "LIBRARY_PATH",
+    ],
+)
+def test_changed_compiler_input_rejects_continuation_but_allows_inspection(
+    tmp_path, monkeypatch, compiler_input
+):
+    """A different finite-element compilation environment declares new numerics."""
+    path = tmp_path / "compiler-change"
+    with RunStore.create(path, problem=problem_record(), run_metadata=metadata()):
+        pass
+    original = os.environ.get(compiler_input, "")
+    monkeypatch.setenv(compiler_input, original + " task10-changed-compilation-input")
+    with RunStore.open(path) as reader:
+        assert reader.problem_record.problem_id == problem_record().problem_id
+        assert np.array_equal(
+            reader.problem_record.arrays["coordinates"],
+            problem_record().arrays["coordinates"],
+        )
+    with pytest.raises(ValueError, match="numerical|environment"):
+        RunStore.open(path, writable=True)

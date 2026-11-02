@@ -1,5 +1,6 @@
 # type imports
 from typing import Union, Callable
+from itertools import count
 
 # numerical imports
 import numpy as np
@@ -20,6 +21,18 @@ from dolfinx.io import XDMFFile
 # local imports
 from domain_coefficient import ThermalConductivity, HeatSource
 from plotting_utils import plot_scalar_mesh
+
+_APPLICATION_PREFIXES = count()
+
+
+def _release_application_problem(problem):
+    """Release an owned trial problem before its eventual finalizer."""
+    if problem is not None:
+        for name in ("_solver", "_A", "_b", "_x", "_P_mat"):
+            obj = getattr(problem, name, None)
+            if obj is not None:
+                obj.destroy()
+                setattr(problem, name, None)
 
 
 class SteadyHeat2DForwardSolver:
@@ -102,6 +115,7 @@ class SteadyHeat2DForwardSolver:
         }
         self.petsc_opts = default_opts | (petsc_opts or {})
 
+        self._coefficient_generation = 0
         self._initialize_linear_problem("s2dhi_fwd_")
 
     @classmethod
@@ -184,6 +198,7 @@ class SteadyHeat2DForwardSolver:
             "ksp_error_if_not_converged": True,
             "ksp_initial_guess_nonzero": False,
         }
+        self._coefficient_generation = 0
         self._initialize_linear_problem(prefix)
         return self
 
@@ -207,6 +222,157 @@ class SteadyHeat2DForwardSolver:
             petsc_options=self.petsc_opts,
         )
         self.problem.solver.setInitialGuessNonzero(False)
+
+    @property
+    def coefficient_generation(self) -> int:
+        """Count coefficient-handle replacements by explicit field application.
+
+        Changing nodal values preserves the handle and this read-only count.
+        Promoting a scalar coefficient changes it, requiring legacy adjoint and
+        reconstruction objects to be reconstructed with the new heat forms.
+        """
+        return self._coefficient_generation
+
+    def _solve_application(self):
+        """Check application convergence explicitly, preserving legacy policy."""
+        solver = self.problem.solver
+        policy = solver.getErrorIfNotConverged()
+        try:
+            # Native PETSc exceptions can affect subsequent unrelated solves.
+            # Only this reversible application uses an explicit reason check;
+            # ordinary solve() retains the caller's original native policy.
+            solver.setErrorIfNotConverged(False)
+            self.solve()
+            reason = int(solver.getConvergedReason())
+            if reason <= 0:
+                raise RuntimeError(
+                    f"Heat solve did not converge during conductivity application (reason {reason})."
+                )
+            if not np.isfinite(self.T.x.array).all():
+                raise RuntimeError(
+                    "Heat solve returned nonfinite application temperatures."
+                )
+        finally:
+            solver.setErrorIfNotConverged(policy)
+
+    def apply_conductivity_field(
+        self, values: np.ndarray, *, coordinates: np.ndarray
+    ) -> fem.Function:
+        """Apply a positive nodal conductivity and solve its temperature reversibly.
+
+        Parameters
+        ----------
+        values : numpy.ndarray
+            Positive finite conductivity at every node, labelled by coordinates.
+        coordinates : numpy.ndarray
+            Physical (N,2) labels matching this mesh to floating-point roundoff.
+            No interpolation or transfer between meshes is performed.
+
+        Returns
+        -------
+        dolfinx.fem.Function
+            The existing temperature object containing the converged solution.
+            A nodal conductivity retains its coefficient handle. A scalar is
+            promoted only after a separate successful trial heat solve. Failed
+            solves or adoption restore original handles, forms and field arrays.
+        """
+        from heat_model import (
+            FrozenHeatModel,
+            NodalField,
+            coerce_field,
+            canonical_dof_indices,
+        )
+
+        model = FrozenHeatModel.from_forward(self)
+        physical = coerce_field(NodalField(values, coordinates), model)
+        if np.any(physical <= 0):
+            raise ValueError("Conductivity must be positive at every physical node.")
+        order = canonical_dof_indices(self.V)
+        old_temperature = self.T.x.array.copy()
+        if isinstance(self.h.function, fem.Function):
+            old_conductivity = self.h.function.x.array.copy()
+            old_solution = self.problem.x.array.copy()
+            try:
+                self.h.function.x.array[order] = physical
+                self.h.function.x.scatter_forward()
+                self._solve_application()
+                return self.T
+            except BaseException:
+                self.h.function.x.array[:] = old_conductivity
+                self.h.function.x.scatter_forward()
+                self.T.x.array[:] = old_temperature
+                self.T.x.scatter_forward()
+                self.problem.x.array[:] = old_solution
+                self.problem.x.ghostUpdate(
+                    addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD
+                )
+                raise
+
+        # A scalar coefficient has no independent nodal unknowns. Prepare a
+        # complete trial problem so failed promotion cannot touch caller state.
+        trial = SteadyHeat2DForwardSolver.__new__(SteadyHeat2DForwardSolver)
+        trial.mesh, trial.V = self.mesh, self.V
+        conductivity = fem.Function(self.V, name="ThermalConductivity")
+        conductivity.x.array[order] = physical
+        conductivity.x.scatter_forward()
+        trial.h = ThermalConductivity(conductivity, self.mesh, self.V)
+        trial.q, trial.bcs, trial.bottom_dofs = self.q, self.bcs, self.bottom_dofs
+        trial.petsc_opts = dict(self.petsc_opts)
+        trial._coefficient_generation = self.coefficient_generation
+        trial_problem = final_problem = None
+        old_h_attributes = self.h.__dict__.copy()
+        old_forms = self.a, self.L, self.problem, self.coefficient_generation
+        try:
+            prefix = f"s2dhi_apply_trial_{next(_APPLICATION_PREFIXES)}_"
+            trial._initialize_linear_problem(prefix)
+            trial_problem = trial.problem
+            # Preserve any tolerance/policy changes made directly on the
+            # destination KSP as well as settings made through public setters.
+            rtol, atol, divtol, max_it = self.get_ksp_tolerances()
+            trial.problem.solver.setTolerances(
+                rtol=rtol, atol=atol, divtol=divtol, max_it=max_it
+            )
+            trial.problem.solver.setErrorIfNotConverged(
+                self.problem.solver.getErrorIfNotConverged()
+            )
+            trial._solve_application()
+            # LinearProblem.u is read-only. Build the adopted forms through its
+            # public constructor, preserving the original temperature object.
+            final_problem = LinearProblem(
+                trial.a,
+                trial.L,
+                u=self.T,
+                bcs=self.bcs,
+                petsc_options_prefix=f"s2dhi_apply_{next(_APPLICATION_PREFIXES)}_",
+                petsc_options=self.petsc_opts,
+            )
+            final_problem.solver.setTolerances(
+                rtol=rtol, atol=atol, divtol=divtol, max_it=max_it
+            )
+            final_problem.solver.setErrorIfNotConverged(
+                self.problem.solver.getErrorIfNotConverged()
+            )
+            final_problem.solver.setInitialGuessNonzero(False)
+            final_problem.x.array[:] = trial_problem.x.array
+            final_problem.x.ghostUpdate(
+                addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD
+            )
+            self.h.__dict__.update(trial.h.__dict__)
+            self.a, self.L, self.problem = trial.a, trial.L, final_problem
+            self.T.x.array[:] = trial.T.x.array
+            self.T.x.scatter_forward()
+            self._coefficient_generation = old_forms[3] + 1
+            return self.T
+        except BaseException:
+            self.h.__dict__.clear()
+            self.h.__dict__.update(old_h_attributes)
+            self.a, self.L, self.problem, self._coefficient_generation = old_forms
+            self.T.x.array[:] = old_temperature
+            self.T.x.scatter_forward()
+            _release_application_problem(final_problem)
+            raise
+        finally:
+            _release_application_problem(trial_problem)
 
     def get_ksp_tolerances(self) -> tuple[float, float, float, int]:
         """

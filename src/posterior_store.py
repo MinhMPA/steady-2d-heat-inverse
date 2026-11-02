@@ -100,6 +100,15 @@ def numerical_environment():
                 "OPENBLAS_NUM_THREADS",
                 "MKL_NUM_THREADS",
                 "VECLIB_MAXIMUM_THREADS",
+                "CC",
+                "CXX",
+                "CFLAGS",
+                "CPPFLAGS",
+                "CXXFLAGS",
+                "LDFLAGS",
+                "LDSHARED",
+                "CPATH",
+                "LIBRARY_PATH",
             )
         },
     }

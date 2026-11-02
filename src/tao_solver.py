@@ -71,6 +71,7 @@ class SteadyHeat2DTAOSolver:
         options          : whether and which options to configure the solver, refer to https://petsc.org/release/manualpages/Tao/TaoSetFromOptions for details.
         verbose          : verbosity level, 0-3
         """
+        self._forward_generation = forward.coefficient_generation
         self.fwd = forward
         self.adj = adjoint
         self.alpha = adjoint.alpha
@@ -162,6 +163,13 @@ class SteadyHeat2DTAOSolver:
         if options:
             ls.setFromOptions()
 
+    def _check_coefficient_generation(self):
+        if self.fwd.coefficient_generation != self._forward_generation:
+            raise RuntimeError(
+                "The heat conductivity coefficient was replaced. Reconstruct the legacy TAO solver and adjoint with the current forward model."
+            )
+        self.adj._check_coefficient_generation()
+
     # Set bounds on m = log(h)
     def _set_tao_bounds_on_logh(self, *, h_min: float | None, h_max: float | None):
         """
@@ -237,6 +245,7 @@ class SteadyHeat2DTAOSolver:
         -------
         J: the objective integrated over the domain.
         """
+        self._check_coefficient_generation()
         # Copy the current X to the forward and adjoint solvers' thermal conductivity h(x,y)
         X.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
 
@@ -304,6 +313,7 @@ class SteadyHeat2DTAOSolver:
         -------
         numpy.ndarray : the solution vector for thermal conductivity h(x,y).
         """
+        self._check_coefficient_generation()
         self.tao.solve(x=self.X0)
         if self.verbose > 0:
             print("Convergence Reason:", self.tao.getConvergedReason())
