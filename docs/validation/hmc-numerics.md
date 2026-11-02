@@ -1,9 +1,10 @@
 # Conductivity posterior numerical qualification
 
-The qualification apparatus is being verified. The three-mesh numerical pilot
-and the 100 independent heat calibration experiments have **not yet been
-completed**. Passing the helper tests would establish calibration mechanics;
-it would not establish numerical accuracy or calibrated heat posteriors.
+The qualification apparatus passed two independent reviews. The first formal
+mesh-16 force check failed before any trajectories were run. The three-mesh
+numerical pilot and the 100 independent heat calibration experiments have
+**not yet been completed**. Passing the helper tests would establish calibration
+mechanics; it would not establish numerical accuracy or calibrated heat posteriors.
 
 ## The posterior being tested
 
@@ -30,6 +31,98 @@ Simulation-based calibration instead draws truths and noisy observations
 from the same **discrete** prior and heat model used for inference on mesh 16.
 This is the intended calibration experiment. Finer-truth/coarser-inference
 comparisons assess a different question and belong to the subsequent studies.
+
+## Temperature origin and the failed first force check
+
+The first formal pilot preserved in `runs/hmc-pilot` failed all three candidate
+solver tolerances on its mode candidate and ten prior-correlated perturbations.
+At `(rtol,atol)=(1e-12,1e-14)`, only six of eleven fields passed: the mode's
+normalized total-force error was `1.580094e-4`, its likelihood-force error was
+`5.03162e-5`, and the largest energy discrepancy across the fields was
+`2.37244e-4`. No trajectories were launched and no threshold was changed.
+
+A diagnostic compared the same eleven fields and observations at temperature
+origins 300 K and 0 K, including direct and mixed heat/adjoint solves. All 198
+cases were evaluated. Subtracting 300 K from both the imposed boundary and the
+data left the conductivity physics unchanged. At the shifted origin, all
+fields passed at `rtol=1e-10`; at `rtol=1e-12` the maximum energy discrepancy
+was `3.7136e-7` and the mode's force error was `9.423e-8`. Mixed solves isolated
+the error to the heat solution: LU heat with iterative adjoint gave mode-force
+errors about `9e-12`, whereas iterative heat with LU adjoint reproduced the
+failure.
+
+The physical right-hand-side norm changed from about 2652.79 to 0.0600566.
+CG actually used a preconditioned convergence norm: the corresponding
+preconditioned right-hand-side norms were about 4454.55 and 2.78995. Even LU
+at the two origins differed in normalized mode force by `1.42479e-5`.
+The matrices agreed exactly, but translating their assembled right-hand sides
+left a norm defect of `3.91e-12`. Thus tighter CG stopping alone did not remove
+the absolute-temperature assembly and solve roundoff. Evidence is in
+`.superpowers/sdd/2026-10-26-full-field-blackjax-hmc/task-13-offset-probe/probe.json`;
+protected input hashes were unchanged.
+
+The private posterior now solves for excess temperature
+`theta = T - Tref`, where `Tref` is the first canonical imposed boundary value
+(or zero if none is present). The reference is fixed independently of
+conductivity, data and evaluation history. Nonconstant imposed boundaries
+become `boundary_values - Tref`; the heat source is unchanged. The conductivity
+force uses `grad(theta) = grad(T)`, and both likelihood and adjoint use the same
+residual `B theta - (data - Tref)`. Physical fields and sensor predictions
+return `Tref + theta` and `Tref + B theta`, with physical constrained field
+values restored exactly. The frozen physical model, observations, recorded
+fingerprints, prior, and public legacy heat solver retain their meanings.
+
+Four portable regression cases (direct/iterative solves and constant/spatial
+boundary values) failed temperature-origin invariance before this correction.
+After correction, all 23 posterior checks passed in 2.99 s, including those
+four cases, finite differences, Taylor remainders, an independent tangent
+calculation, and failed-solve behavior. There were 18 known direct-LU
+unused-option notices. The log is
+`.superpowers/sdd/2026-10-26-full-field-blackjax-hmc/task-13-temperature-green.log`.
+
+A force-only diagnostic then evaluated the unchanged eleven saved fields and
+original physical observations against LU. All fields passed at the two tighter
+original tolerance pairs; the loosest pair still failed. Maximum discrepancies
+across the eleven fields were:
+
+| `(rtol,atol)` | `abs(delta U)` | Normalized total-force error | Normalized likelihood-force error |
+| --- | --- | --- | --- |
+| `(1e-10,1e-12)` | `1.8935185e-5` | `3.5538327e-6` | `1.1316755e-6` |
+| `(1e-12,1e-14)` | `3.7136488e-7` | `9.4230949e-8` | `3.0006718e-8` |
+
+The diagnostic exited successfully and all protected input hashes were
+unchanged. Evidence is in
+`.superpowers/sdd/2026-10-26-full-field-blackjax-hmc/task-13-centered-force-probe/probe.json`
+and the adjacent log. It uses the **pre-correction mode candidate without a
+refit** and ten saved perturbations; it does not establish accuracy at a newly
+fitted mode or at retained posterior states. The failed pilot is preserved, and
+the changed numerical source requires a new identity and output directory.
+
+The complete qualified suite then passed **456 tests and four subtests in
+1363.75 s**, with zero skips or pytest warnings and 21 known direct-LU
+unused-option notices. Its XML records 460 test cases with no failures, errors
+or skips. Evidence is `task-13-temperature-full-suite.log` and `.xml` in the same
+evidence directory. A strict clean build in the genuine docs-only environment
+passed; Black on the three changed Python files and the patch whitespace check
+were clean.
+
+In the original numerical environment, the nine legacy modules plus posterior
+checks passed **52 tests and four subtests in 4.17 s** in normal alphabetical
+discovery order, with no skips or pytest warnings. An earlier explicit order
+produced two multifidelity-optimization failures (50 other tests and four
+subtests passed). The unchanged apparatus revision `165ffd5` reproduced those
+same two failures in the identical order (46 other tests and four subtests
+passed). This establishes a pre-existing order-dependent failure, not a
+regression from the temperature correction. Native solver error-state
+contamination after a deliberately failed solve is a supported explanation,
+but that specific mechanism was not isolated experimentally. No legacy solver
+code was changed. The preserved logs are `task-13-temperature-legacy.log`,
+`task-13-temperature-baseline-legacy.log`, and
+`task-13-temperature-legacy-ordered.log` (with XML for the ordered run).
+
+Independent review of this correction, a fresh three-mesh numerical pilot and
+all 100 calibration experiments remain required. Passing the regression suite
+and saved-field diagnostic does not establish posterior qualification.
 
 ## Preparation measurements and provisional integration spacing
 
@@ -124,8 +217,9 @@ The apparatus-wide suite subsequently passed 449 tests and four subtests in
 unused-option notices (18 from earlier checks and three from the toy study).
 Its records are `task-13-apparatus-full-suite.log` and
 `task-13-apparatus-full-suite.xml` in that same evidence directory. This full
-suite precedes the search-location correction described below; independent
-review and formal scientific studies remain separate and pending.
+suite precedes the search-location correction described below. Subsequent
+independent apparatus reviews passed; formal scientific qualification remains
+incomplete.
 
 A subsequent continuation regression changed only an unused search directory.
 Actual resolved numerical components remained identical, but the old identity

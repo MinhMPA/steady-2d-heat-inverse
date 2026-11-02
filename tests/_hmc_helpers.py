@@ -26,7 +26,7 @@ def _release_problem(problem):
             setattr(problem, name, None)
 
 
-def make_posterior(nmesh=4, cell="triangle", numerics=None):
+def make_posterior(nmesh=4, cell="triangle", numerics=None, bottom=300.0):
     """Fixed 3-by-3 thermometers and noiseless h=1+0.2*x+0.1*y data."""
     from conductivity_posterior import ConductivityPosterior
     from conductivity_prior import GaussianLogConductivity
@@ -34,7 +34,7 @@ def make_posterior(nmesh=4, cell="triangle", numerics=None):
     from temperature_observations import SensorOperator, TemperatureObservations
 
     truth = make_forward(
-        nmesh=nmesh, cell=cell, h=lambda x: 1 + 0.2 * x[0] + 0.1 * x[1]
+        nmesh=nmesh, cell=cell, h=lambda x: 1 + 0.2 * x[0] + 0.1 * x[1], bottom=bottom
     )
     try:
         truth.solve()
@@ -57,13 +57,19 @@ def make_posterior(nmesh=4, cell="triangle", numerics=None):
 def sensor_tangent_derivative(posterior, z, direction):
     """Independent tangent heat equation followed by the sensor-space contraction."""
     import ufl
+    from dataclasses import replace
     from petsc4py import PETSc
     from dolfinx.fem.petsc import LinearProblem
     from heat_model import HeatNumerics, canonical_dof_indices
     from temperature_observations import SensorOperator
 
     numerics = HeatNumerics(rtol=1e-12, atol=1e-14, ksp_type="preonly", pc_type="lu")
-    forward = posterior._model.build_forward(
+    # Independently assemble the tangent heat equation in excess temperature;
+    # a large arbitrary origin must not contaminate this reference derivative.
+    model = posterior._model
+    reference = float(model.boundary_values[0]) if len(model.boundary_values) else 0.0
+    centered_model = replace(model, boundary_values=model.boundary_values - reference)
+    forward = centered_model.build_forward(
         prefix="sensor_tangent_heat_", numerics=numerics
     )
     tangent = None
@@ -91,7 +97,9 @@ def sensor_tangent_derivative(posterior, z, direction):
         )
         dT = tangent.solve()
         sensor = SensorOperator(forward.V, posterior.observations.points)
-        residual = sensor.predict(forward.T.x.array) - posterior.observations.values
+        residual = sensor.predict(forward.T.x.array) - (
+            posterior.observations.values - reference
+        )
         return float(
             (residual / posterior.observations.sigma**2) @ sensor.predict(dT.x.array)
         )

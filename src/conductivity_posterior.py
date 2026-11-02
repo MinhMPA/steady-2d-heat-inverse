@@ -1,7 +1,7 @@
 """Fixed-sensor conductivity posterior and its discrete-adjoint force."""
 
 # type imports
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 
 # numerical imports
@@ -93,6 +93,14 @@ class ConductivityPosterior:
         Fixed heat and adjoint tolerances, independent of evaluation history.
     prefix : str
         Nonempty PETSc prefix; heat and adjoint receive distinct suffixes.
+
+    Notes
+    -----
+    The private heat unknown is the excess above a fixed boundary reference.
+    Both the likelihood and adjoint use the centered residual, avoiding loss of
+    force accuracy from an arbitrary absolute temperature origin. Public fields,
+    sensor predictions, the frozen physical model and observations retain their
+    original physical temperatures.
     """
 
     def __init__(self, model, observations, prior, numerics, *, prefix):
@@ -129,8 +137,20 @@ class ConductivityPosterior:
         self._observations = observations
         self._prior = prior
         self._numerics = numerics
+        # A fixed scalar reference leaves grad(T), the source and all
+        # conductivity derivatives unchanged, including for nonuniform imposed
+        # temperatures. It depends only on the canonical physical boundary.
+        self._temperature_reference = (
+            float(model.boundary_values[0]) if len(model.boundary_values) else 0.0
+        )
+        centered_model = replace(
+            model, boundary_values=model.boundary_values - self._temperature_reference
+        )
+        self._centered_boundary_values = centered_model.boundary_values
+        self._centered_observations = observations.values - self._temperature_reference
+        self._centered_observations.setflags(write=False)
         try:
-            self._forward = model.build_forward(
+            self._forward = centered_model.build_forward(
                 prefix=prefix + "heat_", numerics=numerics
             )
             forward = self._forward
@@ -236,8 +256,8 @@ class ConductivityPosterior:
         # there. Restore only those values, preserving the free-node solution.
         constrained = self._order[self._model.boundary_dofs]
         if stage == "heat":
-            self._forward.problem.x.array[constrained] = self._model.boundary_values
-            self._forward.T.x.array[constrained] = self._model.boundary_values
+            self._forward.problem.x.array[constrained] = self._centered_boundary_values
+            self._forward.T.x.array[constrained] = self._centered_boundary_values
             self._forward.T.x.scatter_forward()
         else:
             self._adjoint_solution.array[constrained] = 0.0
@@ -249,13 +269,19 @@ class ConductivityPosterior:
         self._forward.h.function.x.array[self._order] = h
         self._forward.h.function.x.scatter_forward()
         iterations = self._solve("heat", position)
-        temperature = self._forward.T.x.array[self._order].copy()
-        if not np.isfinite(temperature).all():
+        excess = self._forward.T.x.array[self._order]
+        centered_sensors = self._sensors.predict(self._forward.T.x.array)
+        if not np.isfinite(excess).all() or not np.isfinite(centered_sensors).all():
             raise NonfiniteProposal("temperature", position)
-        sensors = self._sensors.predict(self._forward.T.x.array)
-        if not np.isfinite(sensors).all():
+        # Reconstruct physical output only after solving and interpolating the
+        # excess. Never subtract these rounded public temperatures for the force.
+        with np.errstate(over="ignore", invalid="ignore"):
+            temperature = excess + self._temperature_reference
+            sensors = centered_sensors + self._temperature_reference
+        temperature[self._model.boundary_dofs] = self._model.boundary_values
+        if not np.isfinite(temperature).all() or not np.isfinite(sensors).all():
             raise NonfiniteProposal("temperature", position)
-        return temperature, sensors, iterations
+        return temperature, sensors, centered_sensors, iterations
 
     def predict_h(self, h: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         r"""Predict canonical nodal temperatures and fixed physical sensor readings.
@@ -275,7 +301,7 @@ class ConductivityPosterior:
         if not np.isfinite(h).all() or np.any(h <= 0):
             raise NonfiniteProposal("conductivity", h)
         try:
-            temperature, sensors, _ = self._predict(h, h)
+            temperature, sensors, _, _ = self._predict(h, h)
             return temperature, sensors
         except NonfiniteProposal:
             raise
@@ -308,9 +334,9 @@ class ConductivityPosterior:
                 gaussian_energy = float(0.5 * (z @ z))
             if not np.isfinite(gaussian_energy):
                 raise NonfiniteProposal("potential", z)
-            _, sensors, heat_iterations = self._predict(h, z)
+            _, sensors, centered_sensors, heat_iterations = self._predict(h, z)
             with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                residual = sensors - self.observations.values
+                residual = centered_sensors - self._centered_observations
                 standardized = residual / self.observations.sigma
                 phi = float(0.5 * (standardized @ standardized))
                 weights = standardized / self.observations.sigma

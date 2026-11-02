@@ -126,8 +126,9 @@ def test_boundary_only_likelihood_has_no_conductivity_force(numerics):
             assert ev.phi == pytest.approx(0.5 * (1 + 1 / 4 + 4 / 9))
             assert np.max(np.abs(ev.grad_phi)) < 1e-12
             constrained = posterior._order[posterior._model.boundary_dofs]
+            physical_temperature, _ = posterior.predict_h(ev.h)
             assert np.array_equal(
-                posterior._forward.T.x.array[constrained],
+                physical_temperature[posterior._model.boundary_dofs],
                 posterior._model.boundary_values,
             )
             assert np.array_equal(
@@ -288,7 +289,9 @@ def test_posterior_failure_preserves_legacy_divergence_reporting(stage):
 
 @pytest.mark.parametrize("numerics", [HeatNumerics(), ACCURATE])
 def test_nonfinite_sensor_dual_is_recoverable_before_adjoint(numerics):
-    with make_posterior(numerics=numerics) as initial:
+    # This artificial tiny-noise experiment needs an exactly representable
+    # zero residual. A zero origin avoids rounding on public T = 300 + excess.
+    with make_posterior(numerics=numerics, bottom=0.0) as initial:
         z = np.zeros(initial.prior.dimension)
         valid_z = np.full(z.size, 1e-8)
         baseline = initial.evaluate(z).sensor_temperature[4]
@@ -324,3 +327,105 @@ def test_nonfinite_sensor_dual_is_recoverable_before_adjoint(numerics):
             assert np.isfinite(valid.potential)
             assert np.isfinite(valid.gradient).all()
             assert posterior.solve_counts.adjoint == counts.adjoint + 1
+
+
+@pytest.mark.parametrize("numerics", [HeatNumerics(rtol=1e-12, atol=1e-14), ACCURATE])
+@pytest.mark.parametrize("spatial_boundary", [False, True])
+def test_posterior_is_invariant_to_the_temperature_origin(numerics, spatial_boundary):
+    """An arbitrary 300 K origin cannot change conductivity inference.
+
+    Compare identical stored data and boundary differences at two origins,
+    including a nonconstant imposed temperature. The 256 thermometers and
+    1 mK errors expose absolute-temperature roundoff in the heat equation.
+    No saved study or fitted state is needed for this physical symmetry test.
+    """
+    from contextlib import ExitStack
+    from dataclasses import replace
+    from conductivity_prior import GaussianLogConductivity
+    from temperature_observations import SensorOperator
+    from ._hmc_helpers import _release_problem
+
+    caller = make_forward(nmesh=16, cell="quadrilateral", h=2.0, bottom=300.0)
+    try:
+        # A caller field is independent of this posterior's private heat solves.
+        caller.T.x.array[:] = np.linspace(281.0, 317.0, len(caller.T.x.array))
+        before = state_arrays(caller)
+        model = FrozenHeatModel.from_forward(caller)
+        if spatial_boundary:
+            model = replace(
+                model,
+                boundary_values=300.0
+                + 0.125 * model.coordinates[model.boundary_dofs, 0],
+            )
+        prior = GaussianLogConductivity(mu=np.log(2.0), kappa=2, tau=1, h_ref=1).bind(
+            model, caller.V
+        )
+        axis = np.arange(1, 17) / 17.0
+        points = np.array([(x, y) for x in axis for y in axis])
+        values = 300.0 + (points[:, 1] - 0.5 * points[:, 1] ** 2) / 2.0
+        values += np.random.default_rng(20261024).normal(0.0, 1e-3, len(points))
+        observations = TemperatureObservations(points, values, 1e-3)
+        shifted_model = replace(model, boundary_values=model.boundary_values - 300.0)
+        shifted_observations = TemperatureObservations(points, values - 300.0, 1e-3)
+        fingerprint = model.fingerprint
+        saved_boundary = model.boundary_values.copy()
+        saved_values = observations.values.copy()
+        with ExitStack() as stack:
+            physical = stack.enter_context(
+                ConductivityPosterior(
+                    model, observations, prior, numerics, prefix="origin_physical_"
+                )
+            )
+            shifted = stack.enter_context(
+                ConductivityPosterior(
+                    shifted_model,
+                    shifted_observations,
+                    prior,
+                    numerics,
+                    prefix="origin_shifted_",
+                )
+            )
+            z = np.linspace(-0.02, 0.02, prior.dimension)
+            physical_ev, shifted_ev = physical.evaluate(z), shifted.evaluate(z)
+            physical_T, physical_sensors = physical.predict_h(physical_ev.h)
+            shifted_T, shifted_sensors = shifted.predict_h(shifted_ev.h)
+            assert np.array_equal(physical_sensors, physical_ev.sensor_temperature)
+            assert np.array_equal(shifted_sensors, shifted_ev.sensor_temperature)
+            assert np.array_equal(physical_T[model.boundary_dofs], saved_boundary)
+            # Public outputs retain physical temperature units.
+            np.testing.assert_allclose(
+                physical_T, shifted_T + 300.0, rtol=0, atol=2e-10
+            )
+            np.testing.assert_allclose(
+                physical_sensors, shifted_sensors + 300.0, rtol=0, atol=2e-10
+            )
+            physical_native = np.empty_like(physical_T)
+            physical_native[physical._order] = physical_T
+            np.testing.assert_allclose(
+                SensorOperator(physical._forward.V, points).predict(physical_native),
+                physical_sensors,
+                rtol=0,
+                atol=2e-12,
+            )
+            # Both representations contain exactly the same centered doubles;
+            # this checks the symmetry much more tightly than solver accuracy.
+            assert physical_ev.phi == pytest.approx(
+                shifted_ev.phi, rel=1e-12, abs=1e-10
+            )
+            assert physical_ev.potential == pytest.approx(
+                shifted_ev.potential, rel=1e-12, abs=1e-10
+            )
+            np.testing.assert_allclose(
+                physical_ev.grad_phi, shifted_ev.grad_phi, rtol=1e-12, atol=1e-9
+            )
+            np.testing.assert_allclose(
+                physical_ev.gradient, shifted_ev.gradient, rtol=1e-12, atol=1e-9
+            )
+            assert physical._model is model
+            assert physical.observations is observations
+        assert model.fingerprint == fingerprint
+        assert np.array_equal(model.boundary_values, saved_boundary)
+        assert np.array_equal(observations.values, saved_values)
+        assert all(np.array_equal(a, b) for a, b in zip(before, state_arrays(caller)))
+    finally:
+        _release_problem(caller.problem)
