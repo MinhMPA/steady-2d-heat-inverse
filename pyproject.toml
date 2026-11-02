@@ -17,6 +17,12 @@ Repository = "https://github.com/MinhMPA/steady-2d-heat-inverse"
 dev = [
   "pytest>=8",
   "pytest-xdist>=3.5",
+  "nbformat>=5.10",
+  "nbclient>=0.10",
+  "ipykernel>=6.29",
+]
+validation = [
+  "matplotlib>=3.9",
 ]
 plot = [
   "pyvista>=0.48",
@@ -67,6 +73,8 @@ py-modules = [
 ]
 
 [tool.pytest.ini_options]
+addopts = '-m "not hmc_study"'
 markers = [
 	"gradcheck: adjoint gradient validation tests",
+	"hmc_study: long scientific conductivity posterior studies (excluded from ordinary CI)",
 	]

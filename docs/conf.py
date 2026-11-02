@@ -46,9 +46,9 @@ myst_heading_anchors = 3
 # The scientific stack is conda-only (fenics-dolfinx, petsc4py, ...) and far too
 # heavy for a Read the Docs builder. Mock it so autodoc can import the modules and
 # read their docstrings without any of it installed. Submodules such as
-# `dolfinx.fem.petsc` and `numpy.typing` are mocked automatically.
+# `dolfinx.fem.petsc` are mocked automatically. NumPy is a lightweight docs
+# dependency: real ndarray types allow runtime PEP 604 annotations to import.
 autodoc_mock_imports = [
-    "numpy",
     "scipy",
     "pandas",
     "h5py",
@@ -58,6 +58,11 @@ autodoc_mock_imports = [
     "basix",
     "dolfinx",
     "pyvista",
+    "jax",
+    "jaxlib",
+    "blackjax",
+    "arviz_stats",
+    "matplotlib",
 ]
 
 autodoc_default_options = {

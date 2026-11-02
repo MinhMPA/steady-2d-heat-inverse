@@ -1,7 +1,7 @@
 # Testing
 
 ```bash
-pytest -q          # everything: 16 tests
+pytest -q -m "not hmc_study"  # ordinary validation; long scientific studies are separate
 pytest -m gradcheck # just the three slow gradient checks
 ```
 
@@ -59,3 +59,47 @@ they take seconds, not minutes.
 | `.github/workflows/run-gradchecks.yml` | pushes/PRs touching `src/**`, `tests/**`, `pyproject.toml`, `environment.yml`; also `workflow_dispatch` | micromamba env (cached), `pip install -e ".[dev]"`, `pytest -q --maxfail=1 --durations=10` — the full 16-test suite, not just `gradcheck` |
 
 Markers are registered under `[tool.pytest.ini_options]` in `pyproject.toml`.
+
+## CPU conductivity posterior checks
+
+In the separate constrained environment described in {doc}`installation`:
+
+```bash
+export S2DHI_HMC_QUALIFICATION=1 JAX_ENABLE_X64=true JAX_PLATFORMS=cpu
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+export PYTHONPATH="$PWD/src"
+python -m pytest tests/test_hmc_workflow.py -q
+python -m pytest -q -m "not hmc_study"
+sphinx-build -W --keep-going -b html docs docs/_build/html
+```
+
+`test_hmc_workflow.py` first follows optimization → complete-state sampling →
+physical summary → diagnostics → load/resume on a small real heat experiment.
+Its `nbclient` check executes the notebook's computation cells using the same
+interpreter and this checkout's source. There is exactly one `parameters` cell;
+the check overrides `nmesh=4, chains=1, warmup=8, draws=12`, a temporary output and
+`plot=False`. Only cells tagged `plotting` are skipped. Synthetic observations
+still come from the finer mesh at the same 256 interior sensors. This is an
+execution check with explicitly unqualified diagnostics, not convergence evidence.
+
+The isolated `.github/workflows/hmc-cpu.yml` job starts from `environment.yml`,
+checks qualified native package versions, inspects constrained pip resolution
+before installing optional extras, records actual versions and thread settings,
+and requires zero skipped HMC tests. Source, constraints, notebook, tests and
+workflow changes trigger it. The legacy job keeps optional sampling packages
+absent; sampling-dependent checks may skip there, while legacy and lazy-import
+checks remain active. Full scientific studies carry `hmc_study`; the default pytest selection excludes
+them, including in the existing legacy job. Run them explicitly with
+`python -m pytest -m hmc_study` in a study environment. A local run does not establish that the Linux CI job has run.
+
+Inspect actual physical figures separately. The notebook's Matplotlib figures use
+recorded coordinates/connectivity and export small NumPy arrays. The existing
+`test_plotting_function_keeps_linear_field_at_vtk_nodes` independently tests
+physical DOF association for triangles and quadrilaterals at a non-dyadic mesh
+resolution. This mapping check requires no installed PyVista/VTK renderer. A
+separate optional plotting environment must be reported as unqualified until it
+has itself been exercised; preserve the known-conflicting FEM environment.
+
+Sampling convergence, fixed heat-solve accuracy, mesh approximation and prior
+adequacy require separate evidence. The planned report is
+`docs/validation/hmc-mesh-study.md`; no study results are asserted by these tests.

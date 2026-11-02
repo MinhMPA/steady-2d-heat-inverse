@@ -73,6 +73,19 @@ All solvers are MPI-aware:
 mpirun -n 4 python script.py
 ```
 
+### Conductivity posterior
+
+The full-field posterior uses fixed physical thermometers with known independent
+Gaussian errors and a proper Gaussian log-conductivity prior. Optimization and
+sampling describe the same declared posterior; the original reconstruction above
+retains its mathematics. CPU sampling uses one MPI rank and four chains by default.
+
+Start with [the conductivity workflow](docs/hmc.md) and the executable
+[HMCSampling notebook](notebooks/HMCSampling.ipynb). Its short illustrative run is
+unqualified. The planned scientific report is `docs/validation/hmc-mesh-study.md`;
+no mesh-study results are supplied here. See [installation](docs/installation.md)
+for the separate constrained sampling environment and optional diagnostics.
+
 ### Notebooks
 
 - [notebooks/ForwardSolve.ipynb](notebooks/ForwardSolve.ipynb) — forward solve, noise
@@ -104,7 +117,7 @@ differences, against a tangent-linear (JVP) solve, and via a Taylor-remainder co
 rate of ≈ 2. Two further modules add fast constructor- and input-validation checks.
 
 ```bash
-pytest -q            # full suite (16 tests)
+pytest -q -m "not hmc_study"  # ordinary suite; optional sampling requires its environment
 pytest -m gradcheck   # just the three gradient checks — real FEM solves, take minutes
 ```
 

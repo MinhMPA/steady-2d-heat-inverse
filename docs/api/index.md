@@ -6,6 +6,7 @@ Generated from the module docstrings. Remember that these are **flat top-level m
 ```{toctree}
 :maxdepth: 2
 
+heat_inference
 forward_solver
 adjoint_solver
 tao_solver

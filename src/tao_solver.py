@@ -54,7 +54,9 @@ class SteadyHeat2DTAOSolver:
         Parameters
         ----------
         forward          : forward solver, SteadyHeat2DForwardSolver instance, must expose h, T, and solve()
-        adjoint          : adjoint solver, SteadyHeat2DAdjointSolver instance, must expose alpha, sigma, and solve(), assemble_gradient()
+        adjoint : SteadyHeat2DAdjointSolver
+            Original reconstruction adjoint, providing ``alpha``, ``sigma2``,
+            ``solve()`` and ``assemble_gradient()``.
         h_min            : positive lower bound for h
         h_max            : positive upper bound for h
         tao_type         : TAO solver type

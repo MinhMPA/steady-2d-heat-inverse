@@ -4,3 +4,6 @@
 sphinx>=7.2
 sphinx-rtd-theme>=2.0
 myst-parser>=2.0
+
+# ndarray must be a real type for runtime union annotations in API imports.
+numpy>=2,<3

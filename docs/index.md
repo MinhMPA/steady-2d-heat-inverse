@@ -26,7 +26,17 @@ installation
 theory
 usage
 testing
+hmc
 api/index
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Scientific decisions
+
+adr/0001-share-the-conductivity-posterior
+adr/0002-allow-priors-for-sharp-conductivity
+adr/0003-preserve-the-supplied-physical-state
 ```
 
 ## Quick example
