@@ -270,8 +270,10 @@ class ConductivityPosterior:
         self._forward.h.function.x.scatter_forward()
         iterations = self._solve("heat", position)
         excess = self._forward.T.x.array[self._order]
+        if not np.isfinite(excess).all():
+            raise NonfiniteProposal("temperature", position)
         centered_sensors = self._sensors.predict(self._forward.T.x.array)
-        if not np.isfinite(excess).all() or not np.isfinite(centered_sensors).all():
+        if not np.isfinite(centered_sensors).all():
             raise NonfiniteProposal("temperature", position)
         # Reconstruct physical output only after solving and interpolating the
         # excess. Never subtract these rounded public temperatures for the force.

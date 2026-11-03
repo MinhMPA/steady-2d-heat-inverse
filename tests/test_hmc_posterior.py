@@ -429,3 +429,57 @@ def test_posterior_is_invariant_to_the_temperature_origin(numerics, spatial_boun
         assert all(np.array_equal(a, b) for a, b in zip(before, state_arrays(caller)))
     finally:
         _release_problem(caller.problem)
+
+
+@pytest.mark.parametrize("operation", ["evaluate", "predict_h"])
+@pytest.mark.parametrize("invalid", [np.nan, np.inf])
+def test_nonfinite_solved_temperature_is_recoverable(operation, invalid, monkeypatch):
+    """Unrepresentable heat fields reject a proposal without closing its model."""
+    from ._hmc_helpers import make_problem, _release_problem
+
+    problem = make_problem()
+    caller = problem.forward
+    before = state_arrays(caller)
+    try:
+        with problem:
+            posterior = problem.posterior
+            z = np.linspace(-0.1, 0.1, posterior.prior.dimension)
+            baseline = posterior.evaluate(z)
+            counts = posterior.solve_counts
+            solve = posterior._solve
+            free = np.setdiff1d(
+                np.arange(posterior.prior.dimension), posterior._forward.bottom_dofs
+            )[0]
+
+            def nonfinite_after_converged_solve(stage, position):
+                iterations = solve(stage, position)
+                if stage == "heat":
+                    posterior._forward.T.x.array[free] = invalid
+                return iterations
+
+            argument = z if operation == "evaluate" else baseline.h
+            with monkeypatch.context() as injection:
+                injection.setattr(posterior, "_solve", nonfinite_after_converged_solve)
+                with pytest.raises(NonfiniteProposal) as exc:
+                    getattr(posterior, operation)(argument)
+            assert exc.value.stage == "temperature"
+            assert np.array_equal(exc.value.position, argument)
+            assert posterior.solve_counts.heat == counts.heat + 1
+            assert posterior.solve_counts.adjoint == counts.adjoint
+            assert all(
+                np.array_equal(a, b) for a, b in zip(before, state_arrays(caller))
+            )
+            recovered = posterior.evaluate(z)
+            assert recovered.potential == baseline.potential
+            assert np.array_equal(recovered.gradient, baseline.gradient)
+            assert np.array_equal(
+                recovered.sensor_temperature, baseline.sensor_temperature
+            )
+            temperature, sensors = posterior.predict_h(baseline.h)
+            assert np.isfinite(temperature).all()
+            assert np.array_equal(sensors, baseline.sensor_temperature)
+            assert all(
+                np.array_equal(a, b) for a, b in zip(before, state_arrays(caller))
+            )
+    finally:
+        _release_problem(caller.problem)
