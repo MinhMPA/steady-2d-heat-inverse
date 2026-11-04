@@ -76,31 +76,15 @@ def require_sampling_environment():
     }
 
 
-def make_logdensity(value_and_grad):
-    r"""Expose :math:`-U` and its supplied derivative :math:`-\nabla U` to JAX.
-
-    Parameters
-    ----------
-    value_and_grad : callable
-        Receives one copied NumPy float64 position vector and returns its scalar
-        potential and NumPy float64 gradient together. Its heat-solve and
-        nonfinite-proposal exceptions pass through unchanged.
-
-    Returns
-    -------
-    callable
-        The eager CPU log probability. A combined ``jax.value_and_grad`` request
-        evaluates the supplied function exactly once and retains the supplied
-        force for reverse differentiation. Use it under ``jax.disable_jit()``;
-        traced compilation, batching, and parallel mapping are unsupported.
-    """
+def _make_validated_target(value_and_grad):
+    """One checked supplied posterior pair and its public custom-VJP view."""
     if not callable(value_and_grad):
         raise TypeError("value_and_grad must supply the posterior potential and force.")
     require_sampling_environment()
     jax = importlib.import_module("jax")
     jnp = importlib.import_module("jax.numpy")
 
-    def evaluate(z):
+    def checked_pair(z):
         # The custom reverse rule receives a concrete primal for an eager
         # gradient. Reject other transformations before touching NumPy/PETSc.
         if isinstance(z, jax.core.Tracer):
@@ -128,21 +112,43 @@ def make_logdensity(value_and_grad):
             raise RuntimeError(
                 "The supplied posterior potential and force must be float64."
             )
-        return jnp.asarray(-potential), jnp.asarray(-gradient)
+        return -potential, -gradient
 
     @jax.custom_vjp
     def logdensity(z):
-        return evaluate(z)[0]
+        return jnp.asarray(checked_pair(z)[0])
 
     def forward(z):
-        value, force = evaluate(z)
+        value, force = checked_pair(z)
+        value, force = jnp.asarray(value), jnp.asarray(force)
         return value, force
 
     def reverse(force, weight):
         return (weight * force,)
 
     logdensity.defvjp(forward, reverse)
-    return logdensity
+    return logdensity, checked_pair
+
+
+def make_logdensity(value_and_grad):
+    r"""Expose :math:`-U` and its supplied derivative :math:`-\nabla U` to JAX.
+
+    Parameters
+    ----------
+    value_and_grad : callable
+        Receives one copied NumPy float64 position vector and returns its scalar
+        potential and NumPy float64 gradient together. Its heat-solve and
+        nonfinite-proposal exceptions pass through unchanged.
+
+    Returns
+    -------
+    callable
+        The eager CPU log probability. A combined ``jax.value_and_grad`` request
+        evaluates the supplied function exactly once and retains the supplied
+        force for reverse differentiation. Use it under ``jax.disable_jit()``;
+        traced compilation, batching, and parallel mapping are unsupported.
+    """
+    return _make_validated_target(value_and_grad)[0]
 
 
 # These declarations intentionally need no optional sampling imports.
@@ -183,7 +189,7 @@ class HMCControls:
         Tune only integration spacing during warmup; momentum covariance is fixed.
     divergence_threshold, initial_spread : float
         Absolute energy-error diagnostic threshold and initial whitened spread.
-        These defaults remain provisional pending physical qualification.
+        Reference-informed defaults require qualification for each physical study.
     """
 
     initial_step_size: float | None = None
@@ -191,16 +197,16 @@ class HMCControls:
     target_acceptance: float = 0.8
     trajectory_interval: tuple = (pi / 4, 3 * pi / 4)
     adapt_step_size: bool = True
-    step_size_bounds: tuple = (1e-6, pi / 8)
+    step_size_bounds: tuple = (1e-6, 1.3e-3)
     divergence_threshold: float = 1000.0
-    initial_spread: float = 0.3
+    initial_spread: float = 1.0
 
     def __post_init__(self):
         object.__setattr__(
             self, "initial_step_size_explicit", self.initial_step_size is not None
         )
         if self.initial_step_size is None:
-            object.__setattr__(self, "initial_step_size", 0.1)
+            object.__setattr__(self, "initial_step_size", 6.5e-4)
         for name in (
             "initial_step_size",
             "target_acceptance",
@@ -279,29 +285,27 @@ def gaussian_split_integrator(logdensity_fn, kinetic_energy):
         evolve together by an exact phase-space rotation.
     """
     jax = importlib.import_module("jax")
-    jnp = importlib.import_module("jax.numpy")
+    return _gaussian_split_step(jax.value_and_grad(logdensity_fn), kinetic_energy)
+
+
+def _gaussian_split_step(checked_pair, kinetic_energy):
+    """One split map, supplied with either checked eager or public VJP access."""
     state_type = importlib.import_module("blackjax.mcmc.integrators").IntegratorState
-    value_and_grad = jax.value_and_grad(logdensity_fn)
 
     def step(state, step_size):
         z, p, value, grad = state
         _require_finite("initial Hamiltonian", z, z, p, value, grad, kinetic_energy(p))
-        # The prior force has already been included in logdensity_grad.
+        z, p, grad = np.asarray(z), np.asarray(p), np.asarray(grad)
         p = p + (0.5 * step_size) * (grad + z)
-        cosine, sine = jnp.cos(step_size), jnp.sin(step_size)
+        cosine, sine = np.cos(step_size), np.sin(step_size)
         new_z = cosine * z + sine * p
         new_p = -sine * z + cosine * p
         _require_finite("Gaussian rotation", new_z, new_z, new_p)
-        value, grad = value_and_grad(new_z)
+        value, grad = checked_pair(new_z)
         _require_finite("posterior value or force", new_z, value, grad)
-        new_p = new_p + (0.5 * step_size) * (grad + new_z)
-        _require_finite(
-            "final Hamiltonian",
-            new_z,
-            new_p,
-            kinetic_energy(new_p),
-            -value + kinetic_energy(new_p),
-        )
+        new_p = new_p + (0.5 * step_size) * (np.asarray(grad) + new_z)
+        kinetic = kinetic_energy(new_p)
+        _require_finite("final Hamiltonian", new_z, new_p, kinetic, -value + kinetic)
         return state_type(new_z, new_p, value, grad)
 
     return step
@@ -404,7 +408,7 @@ class BlackJAXChain:
         if not isinstance(controls, HMCControls):
             raise TypeError("controls must be frozen HMCControls.")
         self.controls = controls
-        self.logdensity = make_logdensity(value_and_grad)
+        self.logdensity, self._checked_pair = _make_validated_target(value_and_grad)
         self._jax = importlib.import_module("jax")
         self._jnp = importlib.import_module("jax.numpy")
         self._hmc = importlib.import_module("blackjax.mcmc.hmc")
@@ -473,7 +477,7 @@ class BlackJAXChain:
         observed = False
 
         def observed_integrator(logdensity_fn, kinetic_energy):
-            step = gaussian_split_integrator(logdensity_fn, kinetic_energy)
+            step = _gaussian_split_step(self._checked_pair, kinetic_energy)
 
             def observe(integrator_state, eps):
                 nonlocal initial_energy, observed

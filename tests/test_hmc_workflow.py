@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 from heat_inference import HeatInverseProblem
-from hmc_blackjax import require_sampling_environment
+from hmc_blackjax import HMCControls, require_sampling_environment
 from posterior_samples import PosteriorSamples
 from tests._hmc_helpers import make_problem, state_arrays
 from tests.test_hmc_optimization import release
@@ -34,6 +34,11 @@ def test_documented_sequence_preserves_fields_and_saved_results(
         before = state_arrays(problem.forward)
         estimate = problem.optimize(initial_h=1.0)
         with problem.sample(
+            controls=HMCControls(
+                initial_step_size=0.1,
+                step_size_bounds=(1e-6, np.pi / 8),
+                initial_spread=0.3,
+            ),
             initial=estimate,
             seed=7,
             chains=1,

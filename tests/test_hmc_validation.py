@@ -252,6 +252,30 @@ def test_failed_replication_stays_visible_without_replacing_prior_truth(
         "seed": 32,
     }
     (directory / "failure.json").write_text(json.dumps(failure))
+    from hmc_sbc_worker import issue_attempt, atomic_json
+
+    manifest = json.loads((output / "manifest.json").read_text())
+    issued = issue_attempt(
+        output,
+        index=0,
+        replicates=1,
+        identity=manifest["identity_sha256"],
+        session="preserved",
+        command=["fixture"],
+    )
+    issue = json.loads(issued.read_text())
+    atomic_json(
+        directory / "result.json",
+        {
+            "attempt": issue["attempt"],
+            "replicate": 0,
+            "replicates": 1,
+            "identity": manifest["identity_sha256"],
+            "status": "failed",
+            "seeds": study._sbc_seeds(config, 0),
+            "failure": failure,
+        },
+    )
     result = study.run_sbc(config, output, replicates=1)
     assert result["qualified"] == 0
     assert not result["calibration_complete"]
@@ -418,3 +442,71 @@ def test_small_heat_study_paths_preserve_actual_chain_evidence_and_resume(tmp_pa
         after = _chain_evidence(path, config.step_size_bounds[0])
         assert _encoded(after) == _encoded(evidence)
         assert _sampling_seconds(output, path) >= elapsed
+
+
+def test_worker_scientific_source_is_bound_to_study_identity(tmp_path, monkeypatch):
+    import hmc_validation as study
+    import posterior_store
+
+    monkeypatch.setattr(
+        posterior_store, "numerical_environment", lambda: {"test": "mechanics"}
+    )
+    manifest = study._study_manifest(
+        StudyConfig(), tmp_path / "study", kind="sbc", extra={"replicates": 2}
+    )
+    assert "hmc_sbc_worker" in manifest["identity"]["study_sources"]
+    original_hash = study._file_hash
+    monkeypatch.setattr(
+        study,
+        "_file_hash",
+        lambda path: (
+            "changed-worker"
+            if str(path).endswith("hmc_sbc_worker.py")
+            else original_hash(path)
+        ),
+    )
+    with pytest.raises(ValueError, match="Study identity changed"):
+        study._study_manifest(
+            StudyConfig(), tmp_path / "study", kind="sbc", extra={"replicates": 2}
+        )
+
+
+def test_extension_keeps_largest_saved_draw_target(tmp_path, monkeypatch):
+    import hmc_validation as study
+    import posterior_samples
+    from types import SimpleNamespace
+
+    path = tmp_path / "posterior"
+    path.mkdir()
+
+    class Saved:
+        metadata = {"total_draws": 8192}
+        _store = SimpleNamespace(failures=lambda: [])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr(
+        posterior_samples.PosteriorSamples, "open", lambda path: Saved()
+    )
+    calls = []
+
+    def resume(path, *, total_draws, progress):
+        calls.append(total_draws)
+        return SimpleNamespace(metadata={"total_draws": total_draws})
+
+    study._sample(
+        StudyConfig(),
+        SimpleNamespace(resume=resume),
+        None,
+        path,
+        tmp_path,
+        seed=1,
+        spread=1.0,
+        warmup=1000,
+        draws=2000,
+    )
+    assert calls == [8192]

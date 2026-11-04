@@ -65,6 +65,7 @@ py-modules = [
   "posterior_samples",
   "posterior_diagnostics",
   "hmc_validation",
+  "hmc_sbc_worker",
   "temperature_observations",
   "adjoint_solver",
   "tao_solver",

@@ -1,10 +1,11 @@
 # Conductivity posterior numerical qualification
 
-The qualification apparatus passed two independent reviews. The first formal
-mesh-16 force check failed before any trajectories were run. The three-mesh
-numerical pilot and the 100 independent heat calibration experiments have
-**not yet been completed**. Passing the helper tests would establish calibration
-mechanics; it would not establish numerical accuracy or calibrated heat posteriors.
+The first formal mesh-16 force check failed before any trajectories were run.
+After the temperature-origin correction and independent review, the numerical
+pilot at source `40f1324` completed on meshes 16, 32 and 64. Its evidence is
+summarized below. The combined revision changes the integration implementation,
+public defaults and calibration execution; it requires a **new matching pilot**.
+The 100 independent heat calibration experiments remain **incomplete**.
 
 ## The posterior being tested
 
@@ -120,9 +121,12 @@ code was changed. The preserved logs are `task-13-temperature-legacy.log`,
 `task-13-temperature-baseline-legacy.log`, and
 `task-13-temperature-legacy-ordered.log` (with XML for the ordered run).
 
-Independent review of this correction, a fresh three-mesh numerical pilot and
-all 100 calibration experiments remain required. Passing the regression suite
-and saved-field diagnostic does not establish posterior qualification.
+Independent review subsequently identified a missing finite-field guard before
+sensor interpolation. The guard correction at `40f1324` passed 95 posterior,
+JAX-connection and dynamics checks in 6.80 s; both scoped reviews approved it.
+The earlier 456-test suite and original-environment checks precede that guard
+change. The completed pilot below used `40f1324`; all 100 calibration experiments
+remain required.
 
 ## Preparation measurements and provisional integration spacing
 
@@ -243,6 +247,60 @@ Final qualification timing includes native provenance inspection. Both direct-LU
 and candidate comparisons record actual elapsed time and heat/adjoint solve
 counts; sampling-segment timing also records resumed and interrupted work.
 
+## Reference-informed public controls
+
+At source `40f1324`, all three mesh-16 spread pilots (0.1, 0.3 and 1.0)
+passed the predeclared criteria using four chains, 256 warmup and 256 retained
+trajectories per chain. Recorded sampling times were 4141.13, 3953.08 and
+3936.37 s respectively. The selected spread is 1.0, the largest passing choice.
+The complete three-mesh pilot finished under that source; these are numerical
+pilot results, not evidence of production convergence or completed calibration.
+
+The preserved qualification record is
+`runs/hmc-pilot-centered/qualification.json`, with manifest identity
+`dcb1284ed35e8f25ab0c702469c5975608e6b06e87bdd8d7462c4e79e0893b27`.
+For the selected spread 1.0, every chain passed the declared spread criteria
+and had zero retained divergences:
+
+| Mesh | Sampling time (s) | Minimum pilot ESS | Worst pilot R-hat | Frozen `(rtol,atol)` |
+| --- | --- | --- | --- | --- |
+| 16 | 3936.374 | 443.707 | 1.012507 | `(1e-10,1e-12)` |
+| 32 | 7330.666 | 466.035 | 1.016126 | `(1e-10,1e-12)` |
+| 64 | 26290.458 | 440.276 | 1.017080 | `(1e-12,1e-14)` |
+
+Preliminary force checks passed tolerance indices `[1,2]`, `[1,2]` and `[2]`
+respectively; checks on ten actual retained states passed `[0,1,2]` at each
+mesh. Indices refer to the ordered tolerance pairs in the numerical-pilot
+procedure below. The production request begins with 1000 warmup and 2000
+retained iterations per chain. Pilot R-hat values exceed the production
+threshold 1.01, so these short chains remain production-unqualified.
+
+Before the new defaults, the shared-target, JAX, dynamics, Gaussian and complete
+continuation checks passed 150 tests in 539.29 s. The final process orchestration
+and study-helper checks passed 39 tests in 31.64 s, with three known direct-LU
+unused-option notices. After the defaults change, the real serial/concurrent/
+interrupted heat-process check and reference-default checks passed four tests
+in 105.12 s. These verify identical saved physical histories for ordinary versus
+explicit controls and interrupted serial versus uninterrupted concurrent toy
+calculations. Logs are `task-13-shared-target-production-green-continuation.log`,
+`task-13-concurrency-combined-green.log` and
+`task-13-concurrency-native-defaults-green.log` in the task evidence directory.
+The combined revision's full suite and independent review are pending; these
+checks do not replace its new numerical pilot or the calibration study.
+
+Public `HMCControls` now uses initial spacing `6.5e-4`, bounds
+`(1e-6, 1.3e-3)` and spread `1.0`. These settings combine the measured local
+curvature with actual reference trajectories. The duration law remains
+`(pi/4, 3*pi/4)`, the momentum covariance remains identity, and only spacing
+adapts during warmup. Default spacing retains an implicit-provenance marker:
+zero warmup still needs an explicitly supplied spacing and disabled adaptation.
+
+The evidence is conditional on the reference prior, observations and meshes;
+these controls are not a universal stability guarantee. Explicit study controls
+and the notebook's initial spacing `5e-4` and ceiling `1e-3` remain unchanged.
+The final combined numerical/study revision requires a new matching pilot before
+SBC. Its source identity cannot append to the earlier pilot's chains.
+
 ## Numerical pilot
 
 Run from the repository with the qualified native interpreter and environment:
@@ -291,9 +349,9 @@ python scripts/run_hmc_study.py sbc --config validation/hmc_reference.json --out
 
 `pilot_output` in the configuration must identify the completed matching pilot;
 set it before creating the experiment if a different output location is desired.
-The present apparatus runs the predeclared replications sequentially. Any future
-parallel execution must preserve explicit replicate indices/seeds and receive
-a new study identity and review; repeated one-replicate commands would repeat
+The default runs one predeclared replica at a time; `--workers` explicitly bounds
+simultaneous independent replicas as described below. The fixed indices and seeds
+are preserved for either schedule. Repeated one-replicate commands would repeat
 replicate zero and would not supply independent calibration experiments.
 Each replicate records independent truth, noise, sampling and tie-breaking
 seeds. Optimization always starts from the prior median field, with termination
@@ -334,7 +392,7 @@ calibration. Small replicate counts exercise mechanics only.
 
 | Question | Current status |
 | --- | --- |
-| Numerical correctness of fixed discrete posterior evaluations | Formal three-mesh comparisons pending |
+| Numerical correctness of fixed discrete posterior evaluations | Three-mesh pilot complete at `40f1324`; new matching pilot pending for the combined revision |
 | Sampling convergence | Actual production diagnostics pending |
 | Mesh approximation to the physical solution | Not assessed here; subsequent finer-truth studies |
 | Sharp-truth prior adequacy | Not assessed here; subsequent modelling studies |
@@ -343,3 +401,41 @@ The required 100-replication calibration remains incomplete. This report will
 be updated with actual source/environment records, commands, figures,
 measured costs, failures, outcomes and immutable manifest/chain checksums
 after the controller executes and reviews the scientific studies.
+
+## Independent calibration processes
+
+`run_sbc(config, output, replicates=100, workers=1)` and the corresponding
+`--workers` CLI option bound the number of independent replicated experiments
+running together. The default remains one. Every replica uses a fresh Python
+process and its own four chains. Changing worker count changes execution
+provenance, while the fixed replica indices, four distinct random streams per
+index, discrete prior and heat model, duration law, chain lengths, convergence
+extensions and rank diagnostic remain unchanged. There is no automatic resource
+scheduler. A worker count must be an explicit integer between one and the fixed
+replica total.
+
+The parent writes aggregate progress, calibration figures and execution records.
+Each replica owns its local events, log, generated truth/data, mode and posterior.
+A durable issued-attempt record precedes process launch; the replica lock precedes
+native verification and remains held through terminal publication. Restarting the
+parent cannot create a second writer for a child that survived it. An issued but
+unclosed attempt reserves capacity even when no lock is currently held: it could
+be waiting to acquire the lock, or its death could remain unexplained.
+
+Only an explicit cooperative interruption, recorded after safe cleanup, permits
+continuation. It reuses the original truth, observations, saved chains and random
+state, and preserves the largest saved extension target. A completed scientific
+failure remains in the experiment; an unexplained exit remains unresolved across
+restarts. Neither causes a replacement truth draw. Finite insufficient ESS or
+R-hat continues the same chains under the existing extension rule. Missing or
+nonfinite evidence and retained divergences require investigation. Known
+system-wide resource failures stop admission of additional experiments.
+
+Execution histories live under `executions/`; replica-local `attempt-*.json`,
+`attempt-*.log`, `events.jsonl` and `result.json` retain ownership and outcome
+records. A valid terminal result can survive loss of its separate closure record;
+its scientific checksums are verified before aggregation. All numerical and study
+sources, including the worker, remain bound to the study identity. Adoption
+therefore requires a new matching numerical pilot before SBC. The short process
+tests exercise ownership and actual heat sampling only; they provide no physical
+calibration or production convergence evidence.

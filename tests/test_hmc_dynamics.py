@@ -125,7 +125,12 @@ def test_phase_space_volume_is_preserved():
 
 def test_prior_only_transition_accepts_and_energy_uses_sampled_momentum():
     chain = BlackJAXChain(
-        gaussian_value_and_grad(np.zeros(3), np.eye(3)), HMCControls()
+        gaussian_value_and_grad(np.zeros(3), np.eye(3)),
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            initial_spread=0.3,
+        ),
     )
     state = chain.initialize(np.array([0.2, -0.3, 0.5]))
     key = jax.random.key(7501)
@@ -149,7 +154,14 @@ def test_prior_only_transition_accepts_and_energy_uses_sampled_momentum():
 
 def test_ordinary_metropolis_rejection_repeats_library_state():
     target = gaussian_value_and_grad(np.zeros(2), 0.01 * np.eye(2))
-    chain = BlackJAXChain(target, HMCControls(divergence_threshold=0.001))
+    chain = BlackJAXChain(
+        target,
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            divergence_threshold=0.001,
+        ),
+    )
     state = chain.initialize(np.zeros(2))
     key = jax.random.key(517)
     transition = chain.transition(state, key=key, step_size=0.35, num_steps=3)
@@ -184,7 +196,14 @@ def test_nonfinite_proposal_explicitly_repeats_previous_state(failure):
             return np.float64(0.5 * z @ z), np.full_like(z, 1e308)
         return np.float64(0.5 * z @ z), z.copy()
 
-    chain = BlackJAXChain(supplied, HMCControls())
+    chain = BlackJAXChain(
+        supplied,
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            initial_spread=0.3,
+        ),
+    )
     state = chain.initialize(np.array([0.2, -0.3]))
     first = chain.transition(state, key=jax.random.key(71), step_size=0.1, num_steps=4)
     assert not first.accepted and first.divergent and first.acceptance_probability == 0
@@ -203,7 +222,14 @@ def test_real_heat_posterior_reverses_and_uses_one_adjoint_per_step():
             ev = posterior.evaluate(z)
             return ev.potential, ev.gradient
 
-        chain = BlackJAXChain(supplied, HMCControls())
+        chain = BlackJAXChain(
+            supplied,
+            HMCControls(
+                initial_step_size=0.1,
+                step_size_bounds=(1e-6, np.pi / 8),
+                initial_spread=0.3,
+            ),
+        )
         z = np.linspace(-0.02, 0.02, posterior.prior.dimension)
         p = np.linspace(0.1, -0.1, len(z))
         start = integrator_state(chain.logdensity, z, p)
@@ -244,7 +270,14 @@ def test_mid_trajectory_real_pde_failure_propagates(stage):
             ev = posterior.evaluate(z)
             return ev.potential, ev.gradient
 
-        chain = BlackJAXChain(supplied, HMCControls())
+        chain = BlackJAXChain(
+            supplied,
+            HMCControls(
+                initial_step_size=0.1,
+                step_size_bounds=(1e-6, np.pi / 8),
+                initial_spread=0.3,
+            ),
+        )
         state = chain.initialize(np.zeros(posterior.prior.dimension))
         with pytest.raises(HeatSolveFailure) as caught:
             chain.transition(
@@ -290,7 +323,14 @@ def test_controls_reject_invalid_or_resonant_choices(changes):
 
 
 def test_dual_averaging_matches_pinned_routine_and_caps_size():
-    chain = BlackJAXChain(gaussian_value_and_grad(MEAN, COV), HMCControls())
+    chain = BlackJAXChain(
+        gaussian_value_and_grad(MEAN, COV),
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            initial_spread=0.3,
+        ),
+    )
     init, update, final = dual_averaging_adaptation(0.8, t0=10, gamma=0.05, kappa=0.75)
     with jax.disable_jit():
         actual, expected = chain.begin_warmup(), init(0.1)
@@ -305,7 +345,11 @@ def test_dual_averaging_matches_pinned_routine_and_caps_size():
         assert chain.final_step_size(actual) == min(float(final(expected)), np.pi / 8)
     manual = BlackJAXChain(
         gaussian_value_and_grad(MEAN, COV),
-        HMCControls(adapt_step_size=False, initial_step_size=0.2),
+        HMCControls(
+            adapt_step_size=False,
+            initial_step_size=0.2,
+            step_size_bounds=(1e-6, np.pi / 8),
+        ),
     )
     initial = manual.begin_warmup()
     assert_same_state(manual.adapt(initial, 0.1), initial)
@@ -314,7 +358,14 @@ def test_dual_averaging_matches_pinned_routine_and_caps_size():
 
 
 def test_dual_averaging_reports_below_bound_with_evidence():
-    chain = BlackJAXChain(gaussian_value_and_grad(MEAN, COV), HMCControls())
+    chain = BlackJAXChain(
+        gaussian_value_and_grad(MEAN, COV),
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            initial_spread=0.3,
+        ),
+    )
     state = chain.begin_warmup()
     with pytest.raises(ValueError, match="lower bound"):
         for _ in range(100):
@@ -324,7 +375,14 @@ def test_dual_averaging_reports_below_bound_with_evidence():
 
 
 def test_complete_named_state_roundtrips_preserve_values_shapes_dtypes_and_copies():
-    chain = BlackJAXChain(gaussian_value_and_grad(MEAN, COV), HMCControls())
+    chain = BlackJAXChain(
+        gaussian_value_and_grad(MEAN, COV),
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            initial_spread=0.3,
+        ),
+    )
     state = chain.initialize(MEAN)
     adaptation = chain.adapt(chain.begin_warmup(), 0.7)
     for original, encode, decode in [
@@ -347,7 +405,14 @@ def test_complete_named_state_roundtrips_preserve_values_shapes_dtypes_and_copie
 
 def test_negative_large_energy_error_is_diagnostic_and_keeps_metropolis_acceptance():
     target = gaussian_value_and_grad(np.zeros(2), 0.01 * np.eye(2))
-    chain = BlackJAXChain(target, HMCControls(divergence_threshold=0.001))
+    chain = BlackJAXChain(
+        target,
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            divergence_threshold=0.001,
+        ),
+    )
     state = chain.initialize(np.array([10.0, 10.0]))
     transition = chain.transition(
         state, key=jax.random.key(149), step_size=0.05, num_steps=1
@@ -359,7 +424,14 @@ def test_negative_large_energy_error_is_diagnostic_and_keeps_metropolis_acceptan
 
 
 def test_unavailable_initial_energy_is_null_and_never_a_finite_sentinel():
-    chain = BlackJAXChain(gaussian_value_and_grad(MEAN, COV), HMCControls())
+    chain = BlackJAXChain(
+        gaussian_value_and_grad(MEAN, COV),
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            initial_spread=0.3,
+        ),
+    )
     state = chain.initialize(MEAN)._replace(logdensity=jnp.asarray(-np.inf))
     transition = chain.transition(
         state, key=jax.random.key(23), step_size=0.1, num_steps=2
@@ -371,7 +443,14 @@ def test_unavailable_initial_energy_is_null_and_never_a_finite_sentinel():
 
 
 def test_saved_hamiltonian_and_adaptation_continue_identically():
-    chain = BlackJAXChain(gaussian_value_and_grad(MEAN, COV), HMCControls())
+    chain = BlackJAXChain(
+        gaussian_value_and_grad(MEAN, COV),
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            initial_spread=0.3,
+        ),
+    )
     state = chain.initialize(MEAN)
     adaptation = chain.begin_warmup()
     # Include the initial library state whose step/averaged error fields are
@@ -395,7 +474,14 @@ def test_saved_hamiltonian_and_adaptation_continue_identically():
 
 
 def test_finite_enormous_dual_averaging_proposal_caps_before_exponentiation():
-    chain = BlackJAXChain(gaussian_value_and_grad(MEAN, COV), HMCControls())
+    chain = BlackJAXChain(
+        gaussian_value_and_grad(MEAN, COV),
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            initial_spread=0.3,
+        ),
+    )
     # For a prior-only/easy likelihood target with acceptance one, the pinned
     # recursion has avg_error_n = (target-1)*n/(n+t0). Repeated upper capping
     # leaves mu=log(10*eps_initial)=0 and yields a finite raw log proposal
@@ -421,7 +507,14 @@ def test_finite_enormous_dual_averaging_proposal_caps_before_exponentiation():
 def test_finite_enormous_averaged_spacing_caps_and_tiny_average_fails_with_evidence():
     # Synthetic restored-state robustness: ordinary warmup averages already
     # capped current spacings and cannot reach a log average of 1000.
-    chain = BlackJAXChain(gaussian_value_and_grad(MEAN, COV), HMCControls())
+    chain = BlackJAXChain(
+        gaussian_value_and_grad(MEAN, COV),
+        HMCControls(
+            initial_step_size=0.1,
+            step_size_bounds=(1e-6, np.pi / 8),
+            initial_spread=0.3,
+        ),
+    )
     state = chain.begin_warmup()._replace(log_step_size_avg=jnp.asarray(1000.0))
     assert chain.final_step_size(state) == chain.controls.step_size_bounds[1]
     lower = chain.controls.step_size_bounds[0]

@@ -58,9 +58,8 @@ problem = HeatInverseProblem(
 )
 estimate = problem.optimize(initial_h=1.0)
 print(estimate.success, estimate.message)
-controls = HMCControls(initial_step_size=5e-4, step_size_bounds=(1e-6, 1e-3))
 samples = problem.sample(
-    initial=estimate, seed=7, output="runs/example", controls=controls
+    initial=estimate, seed=7, output="runs/example"
 )
 ```
 
@@ -84,7 +83,15 @@ a failed search explicitly returns its last finite state, not a claimed mode.
 
 `sample` defaults to four chains, 1000 warmup iterations and 2000 retained draws per
 chain. One master seed determines independent streams. A common initial state is
-dispersed in whitened coordinates. Explicit per-chain starts use
+dispersed in whitened coordinates with default spread `1.0`. With `controls=None`,
+the initial integration spacing is `6.5e-4`, bounded by `(1e-6, 1.3e-3)` during
+adaptation. These reference-informed settings come from the measured local
+curvature and the three-mesh numerical pilot at source `40f1324`; spread `1.0`
+is the largest passing choice among `0.1`, `0.3` and `1.0` in its mesh-16 pilot.
+The evidence is conditional on the documented prior, data and mesh. It does not
+guarantee stability for every physical problem or establish production
+convergence. The final numerical revision requires its new matching pilot before
+calibration. Explicit per-chain starts and custom controls use
 
 ```python
 from hmc_blackjax import HMCControls
@@ -109,18 +116,19 @@ four-chain convergence.
 The dynamics combine likelihood-force kicks with exact Gaussian-prior rotations,
 identity momentum covariance and randomized trajectory durations. Only step size
 adapts during warmup. Retained draws use frozen controls. Zero warmup requires
-`adapt_step_size=False` and an explicit step size. Current library trajectory defaults
-remain provisional pending physical qualification. The notebook uses explicit
+`adapt_step_size=False` and an explicitly supplied step size, even when that
+value equals the library default. The randomized duration law remains
+`(pi/4, 3*pi/4)`. The notebook uses explicit
 initial spacing `5e-4` and upper bound `1e-3`, preserving the default randomized
 duration interval. At `nmesh=4` the measured largest local posterior curvature was
 $1.77787\times10^6$, with local harmonic spacing scale
 $2/\sqrt{\lambda_{max}}=0.00149996$. The chosen ceiling is below that local scale;
 global stability still needs actual trajectory evidence. The library's initial
-spacing `0.1` caused two rejected divergent warmup trajectories and a subsequent
+former provisional spacing `0.1` caused two rejected divergent warmup trajectories and a subsequent
 fatal adjoint failure at an extremely small positive finite conductivity. The
-stopped calculation is retained as evidence. Library defaults and fatal
-heat-solve semantics remain unchanged. These conservative controls belong to the
-illustrative example, pending the separate sampling pilot.
+stopped calculation is retained as evidence. The new reference-informed defaults
+replace that provisional spacing and ceiling. A failed finite heat solve still
+stops the run. The notebook retains its independently chosen explicit controls.
 
 ## Saved fields, errors and physical interpretation
 

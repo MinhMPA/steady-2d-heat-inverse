@@ -17,6 +17,11 @@ from ._hmc_helpers import make_problem, state_arrays, interrupt_after, assert_ru
 
 require_sampling_environment()
 
+# Preserve the established n2 continuation experiment and its trajectory lengths.
+TOY_CONTROLS = HMCControls(
+    initial_step_size=0.1, step_size_bounds=(1e-6, np.pi / 8), initial_spread=0.3
+)
+
 
 @pytest.fixture
 def problem():
@@ -32,11 +37,12 @@ def problem():
 @pytest.mark.parametrize("phase,completed", [("warmup", 3), ("sample", 4)])
 def test_resume_matches_uninterrupted(problem, tmp_path, phase, completed):
     common = dict(initial=1.0, seed=42, chains=1, warmup=8, draws=12)
-    with problem.sample(output=tmp_path / "whole", **common):
+    with problem.sample(controls=TOY_CONTROLS, output=tmp_path / "whole", **common):
         pass
     before = state_arrays(problem.forward)
     with pytest.raises(KeyboardInterrupt):
         problem.sample(
+            controls=TOY_CONTROLS,
             output=tmp_path / "split",
             progress=interrupt_after(0, phase, completed),
             **common,
@@ -51,11 +57,12 @@ def test_resume_matches_uninterrupted(problem, tmp_path, phase, completed):
 
 def test_fresh_python_process_resumes_saved_heat_problem(problem, tmp_path):
     common = dict(initial=1.0, seed=142, chains=1, warmup=3, draws=4)
-    with problem.sample(output=tmp_path / "whole", **common):
+    with problem.sample(controls=TOY_CONTROLS, output=tmp_path / "whole", **common):
         pass
     output = tmp_path / "split"
     with pytest.raises(KeyboardInterrupt):
         problem.sample(
+            controls=TOY_CONTROLS,
             output=output,
             progress=interrupt_after(0, "warmup", 1),
             **common,
@@ -84,7 +91,13 @@ with HeatInverseProblem.load(sys.argv[1]) as problem:
 def test_extension_preserves_draws_and_initial_states(problem, tmp_path):
     output = tmp_path / "run"
     with problem.sample(
-        initial=1.0, seed=3, warmup=2, draws=3, chains=2, output=output
+        controls=TOY_CONTROLS,
+        initial=1.0,
+        seed=3,
+        warmup=2,
+        draws=3,
+        chains=2,
+        output=output,
     ):
         pass
     with RunStore.open(output) as store:
@@ -108,7 +121,7 @@ def test_zero_warmup_needs_explicit_spacing_and_disabled_adaptation(problem, tmp
     for controls in (
         HMCControls(),
         HMCControls(adapt_step_size=False),
-        HMCControls(initial_step_size=0.1),
+        HMCControls(initial_step_size=0.1, step_size_bounds=(1e-6, np.pi / 8)),
     ):
         with pytest.raises(ValueError, match="warmup|explicit"):
             problem.sample(
@@ -121,7 +134,12 @@ def test_zero_warmup_needs_explicit_spacing_and_disabled_adaptation(problem, tmp
                 output=tmp_path / "invalid",
             )
         assert not (tmp_path / "invalid").exists()
-    explicit = HMCControls(initial_step_size=0.1, adapt_step_size=False)
+    explicit = HMCControls(
+        initial_step_size=0.1,
+        adapt_step_size=False,
+        step_size_bounds=(1e-6, np.pi / 8),
+        initial_spread=0.3,
+    )
     with problem.sample(
         initial=1.0,
         seed=4,
@@ -170,13 +188,14 @@ def test_invalid_request_precedes_output(problem, tmp_path, options):
     )
     common.update(options)
     with pytest.raises(ValueError):
-        problem.sample(**common)
+        problem.sample(controls=TOY_CONTROLS, **common)
     assert not (tmp_path / "invalid").exists()
 
 
 def test_explicit_starts_and_single_chain_are_exact(problem, tmp_path):
     initial = problem.initial_state(1.0)
     with problem.sample(
+        controls=TOY_CONTROLS,
         initial_states=[initial, initial],
         chains=2,
         seed=1,
@@ -186,7 +205,13 @@ def test_explicit_starts_and_single_chain_are_exact(problem, tmp_path):
     ):
         pass
     with problem.sample(
-        initial=initial, chains=1, seed=1, warmup=1, draws=1, output=tmp_path / "single"
+        controls=TOY_CONTROLS,
+        initial=initial,
+        chains=1,
+        seed=1,
+        warmup=1,
+        draws=1,
+        output=tmp_path / "single",
     ):
         pass
     for name, chains in (("explicit", 2), ("single", 1)):
@@ -203,7 +228,13 @@ def test_changed_physics_or_environment_rejected_before_append(
 ):
     output = tmp_path / "run"
     with problem.sample(
-        initial=1.0, seed=1, warmup=1, draws=1, chains=1, output=output
+        controls=TOY_CONTROLS,
+        initial=1.0,
+        seed=1,
+        warmup=1,
+        draws=1,
+        chains=1,
+        output=output,
     ):
         pass
     with make_problem(nmesh=3) as other:
@@ -237,7 +268,12 @@ def test_nonfinite_proposal_repeats_physical_fields(problem, tmp_path, monkeypat
         warmup=0,
         draws=3,
         chains=1,
-        controls=HMCControls(initial_step_size=0.1, adapt_step_size=False),
+        controls=HMCControls(
+            initial_step_size=0.1,
+            adapt_step_size=False,
+            step_size_bounds=(1e-6, np.pi / 8),
+            initial_spread=0.3,
+        ),
         output=output,
     ):
         pass
@@ -273,11 +309,11 @@ def test_failed_solve_replays_previous_boundary(
         return original(self, z)
 
     common = dict(initial=1.0, seed=13, warmup=2, draws=3, chains=1)
-    with problem.sample(output=tmp_path / "whole", **common):
+    with problem.sample(controls=TOY_CONTROLS, output=tmp_path / "whole", **common):
         pass
     monkeypatch.setattr(ConductivityPosterior, "evaluate", fail)
     with pytest.raises(HeatSolveFailure):
-        problem.sample(output=tmp_path / "split", **common)
+        problem.sample(controls=TOY_CONTROLS, output=tmp_path / "split", **common)
     monkeypatch.setattr(ConductivityPosterior, "evaluate", original)
     with RunStore.open(tmp_path / "split") as store:
         failure = list(store.failures())[-1]
@@ -294,7 +330,10 @@ def test_uneven_real_chains_resume_and_extend(problem, tmp_path):
     common = dict(initial=1.0, seed=33, warmup=1, draws=3, chains=4)
     with pytest.raises(KeyboardInterrupt):
         problem.sample(
-            output=output, progress=interrupt_after(2, "sample", 2), **common
+            controls=TOY_CONTROLS,
+            output=output,
+            progress=interrupt_after(2, "sample", 2),
+            **common,
         )
     with RunStore.open(output) as store:
         assert [store.checkpoint(i).draws_done for i in range(4)] == [3, 3, 2, 0]
@@ -303,7 +342,7 @@ def test_uneven_real_chains_resume_and_extend(problem, tmp_path):
     with problem.resume(output, total_draws=5):
         pass
     common["draws"] = 5
-    with problem.sample(output=tmp_path / "whole", **common):
+    with problem.sample(controls=TOY_CONTROLS, output=tmp_path / "whole", **common):
         pass
     assert_runs_equal(tmp_path / "whole", output)
 
@@ -315,7 +354,7 @@ def test_uncommitted_interrupt_replays_identical_randomness(
 
     original = ConductivityPosterior.evaluate
     common = dict(initial=1.0, seed=111, warmup=3, draws=4, chains=1)
-    with problem.sample(output=tmp_path / "whole", **common):
+    with problem.sample(controls=TOY_CONTROLS, output=tmp_path / "whole", **common):
         pass
     count = 0
 
@@ -329,7 +368,7 @@ def test_uncommitted_interrupt_replays_identical_randomness(
 
     monkeypatch.setattr(ConductivityPosterior, "evaluate", interrupt)
     with pytest.raises(KeyboardInterrupt):
-        problem.sample(output=tmp_path / "split", **common)
+        problem.sample(controls=TOY_CONTROLS, output=tmp_path / "split", **common)
     monkeypatch.setattr(ConductivityPosterior, "evaluate", original)
     with RunStore.open(tmp_path / "split") as store:
         assert list(store.failures())[-1]["aborted_work"]["heat"] > 0
@@ -352,7 +391,13 @@ def test_changed_identity_rejected_before_target_extension(
 
     output = tmp_path / "run"
     with problem.sample(
-        initial=1.0, seed=1, warmup=1, draws=1, chains=1, output=output
+        controls=TOY_CONTROLS,
+        initial=1.0,
+        seed=1,
+        warmup=1,
+        draws=1,
+        chains=1,
+        output=output,
     ):
         pass
     if change == "source_hash":
@@ -438,7 +483,12 @@ def test_accepted_uneven_2000_draw_calculation_extends_to_3000(
 ):
     problem = analytic_transitions
     output = tmp_path / "uneven"
-    controls = HMCControls(initial_step_size=0.1, adapt_step_size=False)
+    controls = HMCControls(
+        initial_step_size=0.1,
+        adapt_step_size=False,
+        step_size_bounds=(1e-6, np.pi / 8),
+        initial_spread=0.3,
+    )
     with pytest.raises(KeyboardInterrupt):
         problem.sample(
             initial=1.0,
@@ -483,11 +533,12 @@ def test_reordered_sequential_schedule_keeps_independent_histories(
 
     problem = analytic_transitions
     common = dict(initial=1.0, seed=21, warmup=2, draws=3, chains=4)
-    with problem.sample(output=tmp_path / "whole", **common):
+    with problem.sample(controls=TOY_CONTROLS, output=tmp_path / "whole", **common):
         pass
     # Interrupt after all starts exist; reverse only trajectory scheduling.
     with pytest.raises(KeyboardInterrupt):
         problem.sample(
+            controls=TOY_CONTROLS,
             output=tmp_path / "reverse",
             progress=interrupt_after(0, "warmup", 1),
             **common,
@@ -506,7 +557,12 @@ def test_half_integer_duration_rounds_up_and_saves_actual_duration(
     import jax
 
     monkeypatch.setattr(jax.random, "uniform", lambda *args, **kwargs: np.float64(1.25))
-    controls = HMCControls(initial_step_size=0.1, adapt_step_size=False)
+    controls = HMCControls(
+        initial_step_size=0.1,
+        adapt_step_size=False,
+        step_size_bounds=(1e-6, np.pi / 8),
+        initial_spread=0.3,
+    )
     with analytic_transitions.sample(
         initial=1.0,
         seed=1,
@@ -530,7 +586,7 @@ def test_interrupt_after_durable_commit_does_not_double_count(
 ):
     original = RunStore._write_status
     common = dict(initial=1.0, seed=81, warmup=2, draws=3, chains=1)
-    with problem.sample(output=tmp_path / "whole", **common):
+    with problem.sample(controls=TOY_CONTROLS, output=tmp_path / "whole", **common):
         pass
     fired = False
 
@@ -550,7 +606,7 @@ def test_interrupt_after_durable_commit_does_not_double_count(
 
     monkeypatch.setattr(RunStore, "_write_status", interrupt_status)
     with pytest.raises(KeyboardInterrupt):
-        problem.sample(output=tmp_path / "split", **common)
+        problem.sample(controls=TOY_CONTROLS, output=tmp_path / "split", **common)
     monkeypatch.setattr(RunStore, "_write_status", original)
     with RunStore.open(tmp_path / "split") as store:
         assert all(
@@ -566,7 +622,13 @@ def test_public_run_chains_rejects_changed_actual_initial_state(problem, tmp_pat
 
     output = tmp_path / "saved"
     with problem.sample(
-        initial=1.0, seed=1, warmup=1, draws=1, chains=1, output=output
+        controls=TOY_CONTROLS,
+        initial=1.0,
+        seed=1,
+        warmup=1,
+        draws=1,
+        chains=1,
+        output=output,
     ):
         pass
     with RunStore.open(output, writable=True) as store:

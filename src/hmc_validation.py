@@ -23,6 +23,10 @@ RANK_POINTS = ((0.25, 0.25), (0.25, 0.75), (0.75, 0.25), (0.75, 0.75))
 QUANTILES = np.arange(1, 20, dtype=float) / 20
 
 
+class _ScientificFailure(RuntimeError):
+    """Irreparable numerical qualification evidence for this same prior draw."""
+
+
 def _integer(value, name, minimum=1):
     if (
         isinstance(value, (bool, np.bool_))
@@ -401,7 +405,12 @@ def _study_manifest(config, output, *, kind, extra):
     directory = Path(__file__).resolve().parent
     study_sources = {
         name: _file_hash(directory / (name + ".py"))
-        for name in ("hmc_validation", "posterior_diagnostics", "posterior_samples")
+        for name in (
+            "hmc_validation",
+            "hmc_sbc_worker",
+            "posterior_diagnostics",
+            "posterior_samples",
+        )
     }
     identity = {
         "schema": 1,
@@ -442,6 +451,7 @@ def _study_manifest(config, output, *, kind, extra):
 @contextmanager
 def _study_lock(output):
     with (Path(output) / "study.lock").open("a") as stream:
+        os.set_inheritable(stream.fileno(), False)
         try:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
@@ -742,12 +752,26 @@ def _chain_evidence(path, lower_bound):
         }
 
 
-def _sample(config, problem, state, path, output, *, seed, spread, warmup, draws):
+def _sample(
+    config,
+    problem,
+    state,
+    path,
+    output,
+    *,
+    seed,
+    spread,
+    warmup,
+    draws,
+    cancel_check=None,
+):
     from posterior_samples import PosteriorSamples
 
     path = Path(path).resolve()
 
     def progress(item):
+        if cancel_check is not None:
+            cancel_check(f"committed:{item.chain}:{item.phase}:{item.completed}")
         if (
             item.completed == 1
             or item.completed % 16 == 0
@@ -765,6 +789,8 @@ def _sample(config, problem, state, path, output, *, seed, spread, warmup, draws
             )
 
     output = Path(output).resolve()
+    if cancel_check is not None:
+        cancel_check("before_sampling_segment")
     started = time.monotonic()
     try:
         if path.exists():
@@ -1209,7 +1235,7 @@ def _qualified_pilot(config):
 
 def _extension_target(report, current):
     if report.divergences:
-        raise RuntimeError(
+        raise _ScientificFailure(
             "Retained divergences cannot be cured by extension; investigate saved posterior."
         )
     minimum = _minimum_ess(report)
@@ -1222,13 +1248,15 @@ def _extension_target(report, current):
             for token in ("nonfinite", "missing", "accidentally constant")
         )
     ):
-        raise RuntimeError(
+        raise _ScientificFailure(
             "Missing/nonfinite convergence evidence requires investigation, not blind extension."
         )
     return max(2 * current, 2 * math.ceil(current * 400 / minimum))
 
 
-def _converged_samples(config, problem, initial, path, output, *, seed, spread, draws):
+def _converged_samples(
+    config, problem, initial, path, output, *, seed, spread, draws, cancel_check=None
+):
     """Extend the same chains until ordinary qualification; preserve every draw."""
     while True:
         samples = _sample(
@@ -1241,8 +1269,11 @@ def _converged_samples(config, problem, initial, path, output, *, seed, spread, 
             spread=spread,
             warmup=1000,
             draws=draws,
+            cancel_check=cancel_check,
         )
         try:
+            if cancel_check is not None:
+                cancel_check("before_convergence_diagnostics")
             report = samples.diagnostics()
             if any(
                 samples._store.checkpoint(chain).step_size <= config.step_size_bounds[0]
@@ -1252,7 +1283,7 @@ def _converged_samples(config, problem, initial, path, output, *, seed, spread, 
                 )
                 for chain in range(4)
             ):
-                raise RuntimeError(
+                raise _ScientificFailure(
                     "Integration spacing reached its lower bound; investigate the preserved posterior."
                 )
             _write(Path(path).parent / "convergence.json", asdict(report))
@@ -1334,7 +1365,303 @@ def _calibration_figures(output, ranks, doubled, envelope):
     plt.close(figure)
 
 
-def run_sbc(config, output, *, replicates=100):
+def _sbc_seeds(config, index):
+    return {
+        name: _seed(config, 30, index, stream)
+        for stream, name in enumerate(("truth", "noise", "sampling", "rank_ties"))
+    }
+
+
+def _checked_artifact(path, record_path):
+    """Validate committed or recoverable arrays without a parent-side rename."""
+    path, record_path = Path(path), Path(record_path)
+    info = json.loads(record_path.read_text())
+    candidate = path if path.exists() else path.with_suffix(".tmp.npz")
+    if not candidate.exists() or _file_hash(candidate) != info["array_sha256"]:
+        raise ValueError("Incomplete or changed scientific array artifact.")
+    return info
+
+
+def _validate_resume_artifacts(directory, seeds=None):
+    from posterior_store import RunStore
+
+    directory = Path(directory)
+    evidence = {}
+    for array, record in (
+        ("generated.npz", "generation.json"),
+        ("estimate.npz", "optimization.json"),
+    ):
+        path = directory / array
+        record_path = directory / record
+        if (
+            path.exists()
+            or path.with_suffix(".tmp.npz").exists()
+            or record_path.exists()
+        ):
+            info = _checked_artifact(path, record_path)
+            evidence[record] = info["array_sha256"]
+            if (
+                record == "generation.json"
+                and seeds is not None
+                and info["seeds"] != seeds
+            ):
+                raise ValueError(
+                    "Saved generation streams differ from the fixed index."
+                )
+    posterior = directory / "posterior"
+    if posterior.exists():
+        with RunStore.open(posterior) as store:
+            metadata = store.metadata
+            if metadata["chains"] != 4 or (
+                seeds is not None and metadata["seed"] != seeds["sampling"]
+            ):
+                raise ValueError("Saved chain count or sampling stream changed.")
+            fatal = [
+                item
+                for item in store.failures()
+                if item.get("exception")
+                not in ("KeyboardInterrupt", "InterruptedError")
+            ]
+            if fatal:
+                raise ValueError("Saved posterior failure requires investigation.")
+            checkpoints = [store.checkpoint(chain) for chain in range(4)]
+            evidence["target_draws"] = metadata["total_draws"]
+            evidence["committed"] = [
+                {
+                    "chain": cp.chain,
+                    "warmup_done": cp.warmup_done,
+                    "draws_done": cp.draws_done,
+                    "phase": cp.phase,
+                }
+                for cp in checkpoints
+            ]
+    return evidence
+
+
+def _validate_sbc_result(config, manifest, directory, result):
+    index = _integer(result["replicate"], "replicate", 0)
+    total = manifest["identity"]["extra"]["replicates"]
+    if (
+        index >= total
+        or result["replicates"] != total
+        or result["identity"] != manifest["identity_sha256"]
+        or result["seeds"] != _sbc_seeds(config, index)
+    ):
+        raise ValueError("Replica index, identity or scientific streams changed.")
+    directory = Path(directory)
+    if result["status"] == "qualified":
+        generation = _checked_artifact(
+            directory / "generated.npz", directory / "generation.json"
+        )
+        if (
+            generation["seeds"] != result["seeds"]
+            or generation["array_sha256"] != result["generation_sha256"]
+            or _checksums(directory / "posterior") != result["checksums"]
+        ):
+            raise ValueError(
+                "Saved calibrated posterior or generated observations changed."
+            )
+        for name in ("ranks", "doubled_interval_ranks"):
+            ranks = np.asarray(result[name])
+            if (
+                ranks.shape != (5,)
+                or ranks.dtype.kind not in "iu"
+                or np.any((ranks < 0) | (ranks > 100))
+            ):
+                raise ValueError("Saved ranks do not match the declared experiment.")
+    elif result["status"] == "failed":
+        if json.loads((directory / "failure.json").read_text()) != result["failure"]:
+            raise ValueError("Saved scientific failure evidence changed.")
+    else:
+        raise ValueError("Unknown terminal scientific status.")
+    return result
+
+
+def _worker_replica(output, *, index, replicates, identity, cancel_check):
+    """Validate the existing study under worker ownership, then do one index."""
+    output = Path(output).resolve()
+    saved = json.loads((output / "manifest.json").read_text())
+    config = StudyConfig(**saved["identity"]["config"])
+    cancel_check("before_native_verification")
+    pilot, pilot_hash = _qualified_pilot(config)
+    manifest = _study_manifest(
+        config,
+        output,
+        kind="sbc",
+        extra={"replicates": replicates, "pilot_qualification_sha256": pilot_hash},
+    )
+    _require_native(manifest)
+    if manifest["identity_sha256"] != identity or not 0 <= index < replicates:
+        raise ValueError("Issued worker does not match the fixed study.")
+    return _run_sbc_replica(
+        config,
+        output,
+        index=index,
+        replicates=replicates,
+        pilot=pilot,
+        cancel_check=cancel_check,
+    )
+
+
+def _run_sbc_replica(config, output, *, index, replicates, pilot, cancel_check):
+    """The single scientific routine used by serial and concurrent fresh workers."""
+    from conductivity_posterior import HeatSolveFailure, NonfiniteProposal
+
+    index = _integer(index, "replicate", 0)
+    if index >= replicates:
+        raise ValueError("Replica index lies outside the fixed study.")
+    output = Path(output).resolve()
+    directory = output / f"replicate-{index:03d}"
+    directory.mkdir(exist_ok=True)
+    replicate = index
+    seeds = _sbc_seeds(config, index)
+    tolerance = tuple(pilot["meshes"]["16"]["tolerances"])
+    spread = pilot["selected_spread"]
+    data_path = directory / "generated.npz"
+    cancel_check("before_generation")
+    try:
+        generation_path = directory / "generation.json"
+        if data_path.with_suffix(".tmp.npz").exists() and generation_path.exists():
+            _array_record(data_path, generation_path)
+        if not data_path.exists():
+            empty = (
+                config.sensor_points,
+                np.full(256, config.bottom_temperature),
+                np.asarray(config.sigma),
+            )
+            with _problem(config, 16, empty, tolerance) as generator:
+                z = np.random.default_rng(seeds["truth"]).normal(
+                    size=generator.posterior.prior.dimension
+                )
+                h = generator.posterior.prior.to_h(z)
+                _, prediction = generator.posterior.predict_h(h)
+                values = prediction + np.random.default_rng(seeds["noise"]).normal(
+                    0, config.sigma, 256
+                )
+                truth = _quantities(generator.to_record(), h)
+                generating_problem_id = generator.problem_id
+            _save_arrays(
+                data_path,
+                generation_path,
+                {
+                    "z": z,
+                    "h": h,
+                    "truth": truth,
+                    "points": config.sensor_points,
+                    "values": values,
+                    "sigma": np.asarray(config.sigma),
+                    "prediction": prediction,
+                },
+                {
+                    "seeds": seeds,
+                    "nmesh": 16,
+                    "generating_problem_id": generating_problem_id,
+                    "tolerances": tolerance,
+                    "truth_law": "same discrete Gaussian prior and heat model as inference",
+                },
+            )
+        cancel_check("after_generation")
+        generation = _array_record(data_path, generation_path)
+        if generation["seeds"] != seeds:
+            raise ValueError("Generated truth/data random streams changed.")
+        with np.load(data_path, allow_pickle=False) as archive:
+            observation = tuple(
+                archive[name].copy() for name in ("points", "values", "sigma")
+            )
+            truth = archive["truth"].copy()
+        with _problem(config, 16, observation, tolerance) as problem:
+            initial, optimization = _optimize(config, problem, directory)
+            cancel_check("after_optimization")
+            requested = pilot["initial_production_draws"]
+            while True:
+                samples, convergence = _converged_samples(
+                    config,
+                    problem,
+                    initial,
+                    directory / "posterior",
+                    directory,
+                    seed=seeds["sampling"],
+                    spread=spread,
+                    draws=requested,
+                    cancel_check=cancel_check,
+                )
+                with samples:
+                    cancel_check("before_rank_selection")
+                    values = _saved_quantities(samples)
+                    selection = _rank_selection(values)
+                    if not selection["enough"]:
+                        requested = max(
+                            samples.metadata["total_draws"] * 2,
+                            2 * selection["required_draws_per_chain"],
+                        )
+                        _event(
+                            directory,
+                            "extend_for_rank_independence",
+                            replicate=replicate,
+                            selection=selection,
+                            new_total=requested,
+                        )
+                        continue
+                    selected = (
+                        values[
+                            np.arange(4)[:, None],
+                            np.asarray(selection["indices"]),
+                        ]
+                        .reshape(100, 5)
+                        .T
+                    )
+                    doubled = (
+                        values[
+                            np.arange(4)[:, None],
+                            np.asarray(selection["double_indices"]),
+                        ]
+                        .reshape(100, 5)
+                        .T
+                    )
+                    ranks = sbc_ranks(truth, selected, seed=seeds["rank_ties"])
+                    doubled_ranks = sbc_ranks(truth, doubled, seed=seeds["rank_ties"])
+                    result = {
+                        "replicate": replicate,
+                        "status": "qualified",
+                        "seeds": seeds,
+                        "truth_quantities": truth,
+                        "ranks": ranks,
+                        "doubled_interval_ranks": doubled_ranks,
+                        "selection": selection,
+                        "optimization": optimization,
+                        "convergence": asdict(convergence),
+                        "problem_id": problem.problem_id,
+                        "retained_per_chain": samples.metadata["total_draws"],
+                    }
+                    break
+        result["checksums"] = _checksums(directory / "posterior")
+        result["generation_sha256"] = generation["array_sha256"]
+        _event(
+            directory,
+            "replicate_science_complete",
+            replicate=index,
+            ranks=result["ranks"],
+            retained_per_chain=result["retained_per_chain"],
+        )
+        return _json_value(result)
+    except (KeyboardInterrupt, InterruptedError) as exc:
+        _event(directory, "interrupted", stage="sbc", replicate=index)
+        if getattr(exc, "sbc_cooperative", False):
+            exc.sbc_boundary = _validate_resume_artifacts(directory, seeds)
+        raise
+    except (HeatSolveFailure, NonfiniteProposal, _ScientificFailure) as exc:
+        _failure(
+            directory, directory / "failure.json", exc, replicate=index, seeds=seeds
+        )
+        return {
+            "replicate": index,
+            "status": "failed",
+            "seeds": seeds,
+            "failure": json.loads((directory / "failure.json").read_text()),
+        }
+
+
+def run_sbc(config, output, *, replicates=100, workers=1):
     r"""Run independent prior-predictive heat calibrations at nmesh=16.
 
     Every truth, noise vector and sampling calculation uses distinct recorded
@@ -1344,15 +1671,24 @@ def run_sbc(config, output, *, replicates=100):
     the doubled subsampling interval lacks enough draws. Failed replications are
     preserved, remain in the denominator, and prevent completion.
 
+    ``workers`` bounds fresh replica processes, with one by default. Each replica
+    retains its four-chain calculation. Worker count is execution provenance;
+    fixed indices/seeds and all scientific settings remain in the study identity.
+
     Returns
     -------
     dict
         Individual statuses, ranks, sensitivity and finite-experiment uncertainty.
         Fewer than 100 requested replications can exercise mechanics only.
     """
+    from hmc_sbc_worker import coordinate
+
     if not isinstance(config, StudyConfig):
         raise TypeError("config must be StudyConfig.")
     replicates = _integer(replicates, "replicates")
+    workers = _integer(workers, "workers")
+    if workers > replicates:
+        raise ValueError("workers cannot exceed the fixed replica total.")
     pilot, pilot_hash = _qualified_pilot(config)
     output = Path(output).resolve()
     manifest = _study_manifest(
@@ -1362,187 +1698,24 @@ def run_sbc(config, output, *, replicates=100):
         extra={"replicates": replicates, "pilot_qualification_sha256": pilot_hash},
     )
     _require_native(manifest)
-    tolerance = tuple(pilot["meshes"]["16"]["tolerances"])
-    spread = pilot["selected_spread"]
-    records = []
     with _study_lock(output):
-        for replicate in range(replicates):
-            directory = output / f"replicate-{replicate:03d}"
-            directory.mkdir(exist_ok=True)
-            result_path = directory / "result.json"
-            if result_path.exists():
-                recorded = json.loads(result_path.read_text())
-                if (
-                    recorded["status"] == "qualified"
-                    and _checksums(directory / "posterior") != recorded["checksums"]
-                ):
-                    raise ValueError(
-                        "Saved calibrated posterior changed after rank recording."
-                    )
-                records.append(recorded)
-                continue
-            if (directory / "failure.json").exists():
-                records.append(
-                    {
-                        "replicate": replicate,
-                        "status": "failed",
-                        "failure": json.loads((directory / "failure.json").read_text()),
-                    }
-                )
-                continue
-            seeds = {
-                "truth": _seed(config, 30, replicate, 0),
-                "noise": _seed(config, 30, replicate, 1),
-                "sampling": _seed(config, 30, replicate, 2),
-                "rank_ties": _seed(config, 30, replicate, 3),
-            }
-            data_path = directory / "generated.npz"
-            try:
-                generation_path = directory / "generation.json"
-                if (
-                    data_path.with_suffix(".tmp.npz").exists()
-                    and generation_path.exists()
-                ):
-                    _array_record(data_path, generation_path)
-                if not data_path.exists():
-                    empty = (
-                        config.sensor_points,
-                        np.full(256, config.bottom_temperature),
-                        np.asarray(config.sigma),
-                    )
-                    with _problem(config, 16, empty, tolerance) as generator:
-                        z = np.random.default_rng(seeds["truth"]).normal(
-                            size=generator.posterior.prior.dimension
-                        )
-                        h = generator.posterior.prior.to_h(z)
-                        _, prediction = generator.posterior.predict_h(h)
-                        values = prediction + np.random.default_rng(
-                            seeds["noise"]
-                        ).normal(0, config.sigma, 256)
-                        truth = _quantities(generator.to_record(), h)
-                        generating_problem_id = generator.problem_id
-                    _save_arrays(
-                        data_path,
-                        generation_path,
-                        {
-                            "z": z,
-                            "h": h,
-                            "truth": truth,
-                            "points": config.sensor_points,
-                            "values": values,
-                            "sigma": np.asarray(config.sigma),
-                            "prediction": prediction,
-                        },
-                        {
-                            "seeds": seeds,
-                            "nmesh": 16,
-                            "generating_problem_id": generating_problem_id,
-                            "tolerances": tolerance,
-                            "truth_law": "same discrete Gaussian prior and heat model as inference",
-                        },
-                    )
-                generation = _array_record(data_path, generation_path)
-                if generation["seeds"] != seeds:
-                    raise ValueError("Generated truth/data random streams changed.")
-                with np.load(data_path, allow_pickle=False) as archive:
-                    observation = tuple(
-                        archive[name].copy() for name in ("points", "values", "sigma")
-                    )
-                    truth = archive["truth"].copy()
-                with _problem(config, 16, observation, tolerance) as problem:
-                    initial, optimization = _optimize(config, problem, directory)
-                    requested = pilot["initial_production_draws"]
-                    while True:
-                        samples, convergence = _converged_samples(
-                            config,
-                            problem,
-                            initial,
-                            directory / "posterior",
-                            output,
-                            seed=seeds["sampling"],
-                            spread=spread,
-                            draws=requested,
-                        )
-                        with samples:
-                            values = _saved_quantities(samples)
-                            selection = _rank_selection(values)
-                            if not selection["enough"]:
-                                requested = max(
-                                    samples.metadata["total_draws"] * 2,
-                                    2 * selection["required_draws_per_chain"],
-                                )
-                                _event(
-                                    output,
-                                    "extend_for_rank_independence",
-                                    replicate=replicate,
-                                    selection=selection,
-                                    new_total=requested,
-                                )
-                                continue
-                            selected = (
-                                values[
-                                    np.arange(4)[:, None],
-                                    np.asarray(selection["indices"]),
-                                ]
-                                .reshape(100, 5)
-                                .T
-                            )
-                            doubled = (
-                                values[
-                                    np.arange(4)[:, None],
-                                    np.asarray(selection["double_indices"]),
-                                ]
-                                .reshape(100, 5)
-                                .T
-                            )
-                            ranks = sbc_ranks(truth, selected, seed=seeds["rank_ties"])
-                            doubled_ranks = sbc_ranks(
-                                truth, doubled, seed=seeds["rank_ties"]
-                            )
-                            result = {
-                                "replicate": replicate,
-                                "status": "qualified",
-                                "seeds": seeds,
-                                "truth_quantities": truth,
-                                "ranks": ranks,
-                                "doubled_interval_ranks": doubled_ranks,
-                                "selection": selection,
-                                "optimization": optimization,
-                                "convergence": asdict(convergence),
-                                "problem_id": problem.problem_id,
-                                "retained_per_chain": samples.metadata["total_draws"],
-                            }
-                            break
-                result["checksums"] = _checksums(directory / "posterior")
-                _write(result_path, result)
-                records.append(_json_value(result))
-                _event(
-                    output,
-                    "replicate_complete",
-                    replicate=replicate,
-                    ranks=ranks,
-                    retained_per_chain=result["retained_per_chain"],
-                )
-            except (KeyboardInterrupt, InterruptedError):
-                _event(output, "interrupted", stage="sbc", replicate=replicate)
-                raise
-            except Exception as exc:
-                _failure(
-                    output,
-                    directory / "failure.json",
-                    exc,
-                    replicate=replicate,
-                    seeds=seeds,
-                )
-                records.append(
-                    {"replicate": replicate, "status": "failed", "failure": str(exc)}
-                )
-                # Other independent prior draws remain in the requested experiment.
-                # The failed draw is never replaced or removed.
-            _write(
+        records = coordinate(
+            output,
+            replicates=replicates,
+            workers=workers,
+            identity=manifest["identity_sha256"],
+            validate_result=lambda directory, result: _validate_sbc_result(
+                config, manifest, directory, result
+            ),
+            validate_resume=lambda directory: _validate_resume_artifacts(
+                directory, _sbc_seeds(config, int(directory.name.split("-")[-1]))
+            ),
+            event=lambda kind, **evidence: _event(output, kind, **evidence),
+            progress=lambda records: _write(
                 output / "progress.json",
                 {"requested": replicates, "records": records, "status": "incomplete"},
-            )
+            ),
+        )
         qualified = [record for record in records if record["status"] == "qualified"]
         summary = {
             "requested": replicates,

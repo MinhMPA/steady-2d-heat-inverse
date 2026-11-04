@@ -65,7 +65,11 @@ def test_seeded_four_chain_means_covariances_and_batch_mcse(
     started = time.perf_counter()
     chain = BlackJAXChain(
         gaussian_value_and_grad(mean, covariance),
-        HMCControls(initial_step_size=0.3, adapt_step_size=False),
+        HMCControls(
+            initial_step_size=0.3,
+            adapt_step_size=False,
+            step_size_bounds=(1e-6, np.pi / 8),
+        ),
     )
     samples = np.empty((4, DRAWS, 3))
     divergent = 0
