@@ -308,7 +308,11 @@ def test_controls_are_frozen_and_own_normalized_intervals():
         {"trajectory_interval": (0, 2)},
         {"trajectory_interval": (2, 1)},
         {"trajectory_interval": (1, np.pi)},
-        {"trajectory_interval": (0.2, 2)},
+        {
+            "trajectory_interval": (0.2, 2),
+            "initial_step_size": 0.1,
+            "step_size_bounds": (1e-6, np.pi / 8),
+        },
         {"step_size_bounds": (0, 0.1)},
         {"step_size_bounds": (0.2, 0.1)},
         {"divergence_threshold": np.inf},

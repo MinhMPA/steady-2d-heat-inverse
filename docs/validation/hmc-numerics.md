@@ -285,8 +285,29 @@ explicit controls and interrupted serial versus uninterrupted concurrent toy
 calculations. Logs are `task-13-shared-target-production-green-continuation.log`,
 `task-13-concurrency-combined-green.log` and
 `task-13-concurrency-native-defaults-green.log` in the task evidence directory.
-The combined revision's full suite and independent review are pending; these
-checks do not replace its new numerical pilot or the calibration study.
+At combined revision `721f303`, the full qualified suite finished with 530
+passed tests, four passed subtests and one failure in 1470.55 s. The failure
+was a stale invalid-control test: its original large spacing bound had become
+implicit after the public defaults changed. The test now declares its original
+spacing and bound, preserving the prior-resonance rejection criterion.
+
+Review also identified missing admission control after Python memory exhaustion.
+A subsequent check exposed parent inspection briefly taking the replica lock
+before the issued child could acquire it. Deterministic child-process regressions
+confirmed both failures. The corrections preserve unresolved evidence, stop
+admission after memory exhaustion, and reserve pending starts without contending
+for their initial ownership lock. Terminal and continuation checks remain locked.
+
+After these fixes, the execution, study-helper, dynamics and actual heat-process
+checks passed 93 tests in 103.92 s, with three known direct-LU unused-option
+notices (`task-13-combined-fix2-final-green.log`). The original environment's
+execution checks passed 20 tests in 2.90 s
+(`task-13-combined-fix2-final-original.log`). Its full suite before these fixes
+passed 362 tests and four subtests, with 24 intentional optional skips, in
+620.50 s. The earlier full qualified suite is not claimed as a post-fix pass.
+Scoped review of these corrections remains pending; the corrected revision
+still requires its new matching numerical pilot and all 100 calibration
+experiments.
 
 Public `HMCControls` now uses initial spacing `6.5e-4`, bounds
 `(1e-6, 1.3e-3)` and spread `1.0`. These settings combine the measured local

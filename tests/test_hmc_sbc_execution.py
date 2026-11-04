@@ -77,6 +77,12 @@ def work(output, index, total, identity, cancel):
         (directory / "interrupted-once").touch()
         os.kill(os.getpid(), signal.SIGINT)
         cancel("committed_fixture_boundary")
+    if mode == "memory_failure":
+        raise MemoryError("manufactured exhausted memory")
+    if mode == "memory_subclass_failure":
+        class ReplicaMemoryError(MemoryError):
+            pass
+        raise ReplicaMemoryError("manufactured exhausted memory subclass")
     if mode == "resource_failure":
         import errno
         raise OSError(errno.ENOSPC, "manufactured unavailable storage")
@@ -390,3 +396,150 @@ def test_known_resource_failure_stops_admission(tmp_path, worker_script):
     assert [row["status"] for row in records[1:]] == ["not_started", "not_started"]
     assert len(list((output / "executions").glob("*/attempt-*.issued.json"))) == 1
     assert run(output, 3, 1, identity, worker_script) == records
+
+
+@pytest.mark.parametrize(
+    "mode, exception",
+    [
+        ("memory_failure", "MemoryError"),
+        ("memory_subclass_failure", "ReplicaMemoryError"),
+    ],
+)
+def test_python_memory_exhaustion_stops_admission_and_persists(
+    tmp_path, worker_script, mode, exception
+):
+    output = tmp_path / "study"
+    identity = experiment(output, 3)
+    atomic_json(output / "fixture-control.json", {"mode": mode})
+    records = run(output, 3, 1, identity, worker_script)
+    assert records[0]["status"] == "unresolved"
+    assert [row["status"] for row in records[1:]] == ["not_started", "not_started"]
+    closure = records[0]["closure"]
+    assert closure["exception"] == exception
+    assert closure["errno"] is None
+    assert closure["resource_exhaustion"] is True
+    attempts = list((output / "executions").glob("*/attempt-*.issued.json"))
+    assert len(attempts) == 1
+    first_issue = attempts[0].read_bytes()
+    directory = output / "replicate-000"
+    closure_path = next(directory.glob("attempt-*.closure.json"))
+    preserved_closure = closure_path.read_bytes()
+    assert (directory / "work-count.txt").read_text() == "called\n"
+    # Even if the next execution would succeed, the unresolved resource failure
+    # remains authoritative until explicitly investigated.
+    atomic_json(output / "fixture-control.json", {"mode": "normal"})
+    assert run(output, 3, 1, identity, worker_script) == records
+    assert len(list((output / "executions").glob("*/attempt-*.issued.json"))) == 1
+    assert attempts[0].read_bytes() == first_issue
+    assert closure_path.read_bytes() == preserved_closure
+    assert (directory / "work-count.txt").read_text() == "called\n"
+    assert all(
+        not (output / f"replicate-{index:03d}/entered.json").exists()
+        for index in (1, 2)
+    )
+
+
+@pytest.mark.parametrize("restart", [False, True])
+def test_parent_inspection_does_not_block_issued_worker_startup(
+    tmp_path, worker_script, monkeypatch, restart
+):
+    """Force the observed lock interleaving; no scheduling-luck retry or sleep."""
+    from contextlib import contextmanager
+    import hmc_sbc_worker as worker
+
+    output = tmp_path / "study"
+    identity = experiment(output, 1)
+
+    def command(issued):
+        return worker_script + [
+            "--output",
+            str(output),
+            "--attempt",
+            str(issued),
+            "--index",
+            "0",
+            "--replicates",
+            "1",
+        ]
+
+    committed = None
+    if restart:
+        atomic_json(output / "fixture-control.json", {"mode": "interrupt_once"})
+        previous = issue_attempt(
+            output,
+            index=0,
+            replicates=1,
+            identity=identity,
+            session="interrupted",
+            command=worker_script,
+        )
+        # No parent inspection during this first launch: establish a real clean
+        # cooperative interruption independently of the startup race under test.
+        first = subprocess.run(
+            command(previous), capture_output=True, text=True, timeout=15
+        )
+        assert first.returncode == 130, first.stdout + first.stderr
+        committed = (output / "replicate-000/committed.json").read_bytes()
+        prior = json.loads(previous.read_text())
+        closure = json.loads(
+            (
+                output / "replicate-000" / f"attempt-{prior['attempt']}.closure.json"
+            ).read_text()
+        )
+        assert closure["status"] == "interrupted" and closure["cooperative"]
+
+    issued = issue_attempt(
+        output,
+        index=0,
+        replicates=1,
+        identity=identity,
+        session="starting",
+        command=worker_script,
+    )
+    gate = tmp_path / "startup-gate"
+    child = subprocess.Popen(
+        command(issued),
+        env=dict(os.environ, SBC_TEST_PRELOCK=str(gate)),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    original_lock = worker._replica_lock
+    acquisitions = []
+
+    @contextmanager
+    def inspected_lock(directory):
+        with original_lock(directory):
+            acquisitions.append(str(directory))
+            # Deterministically place the legitimate child at lock acquisition
+            # while the inspecting parent owns it. The unfixed child exits75.
+            gate.touch()
+            child.wait(timeout=15)
+            yield
+
+    try:
+        wait_for(gate.with_suffix(".ready"))
+        monkeypatch.setattr(worker, "_replica_lock", inspected_lock)
+        state = inspect(output, 0, 1, identity)
+        assert state["reserved"] and not state["eligible"]
+        # The corrected inspection returns without claiming the startup lock;
+        # only then release the child to acquire its own durable ownership.
+        gate.touch()
+        stdout, stderr = child.communicate(timeout=15)
+        assert child.returncode == 0, stdout + stderr + f"exit={child.returncode}"
+        assert not acquisitions
+        monkeypatch.setattr(worker, "_replica_lock", original_lock)
+        result = inspect(output, 0, 1, identity)
+        assert result["status"] == "qualified" and not result["eligible"]
+        assert len(
+            list((output / "executions").glob("*/attempt-*.issued.json"))
+        ) == 1 + int(restart)
+        expected = "called\n" * (1 + int(restart))
+        assert (output / "replicate-000/work-count.txt").read_text() == expected
+        if restart:
+            assert (output / "replicate-000/committed.json").read_bytes() == committed
+    finally:
+        gate.touch()
+        if child.poll() is None:
+            child.kill()
+            child.communicate(timeout=15)

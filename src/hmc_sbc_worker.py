@@ -19,6 +19,16 @@ import time
 import traceback
 import uuid
 
+_RESOURCE_ERRNOS = frozenset(
+    {
+        errno.ENOSPC,
+        errno.EDQUOT,
+        errno.ENOMEM,
+        errno.EMFILE,
+        errno.ENFILE,
+    }
+)
+
 
 class ReplicaBusy(RuntimeError):
     """A replica already has an owner."""
@@ -170,7 +180,7 @@ def _closure(directory, path, issue):
 def inspect_replica(
     output, *, index, replicates, identity, validate_result, validate_resume=None
 ):
-    """Determine eligibility from durable evidence while holding the replica lock."""
+    """Reserve pending starts; validate terminal/resumable evidence under lock."""
     output = Path(output).resolve()
     _binding(output, replicates, identity)
     _integer(index, "index")
@@ -186,7 +196,19 @@ def inspect_replica(
     try:
         issues = _issues(output, index, replicates, identity)
         if issues:
-            state["attempt"] = str(issues[-1][0])
+            latest_path, latest = issues[-1]
+            state["attempt"] = str(latest_path)
+            started = directory / f"attempt-{latest['attempt']}.started.json"
+            if (
+                not started.exists()
+                and not (directory / "result.json").exists()
+                and _closure(directory, latest_path, latest) is None
+            ):
+                # The legitimate worker still needs its first ownership lock.
+                # Inspecting must not briefly take it and force that worker to
+                # exit as a duplicate. Missing evidence only reserves capacity.
+                state.update(reserved=True, reason="issued_attempt_unclosed")
+                return state
         with _replica_lock(directory):
             terminal = directory / "result.json"
             if terminal.exists():
@@ -372,14 +394,8 @@ def coordinate(
                 # A known system-wide resource failure is not evidence about
                 # this posterior; preserve it and stop admitting more work.
                 if any(
-                    state.get("closure", {}).get("errno")
-                    in {
-                        errno.ENOSPC,
-                        errno.EDQUOT,
-                        errno.ENOMEM,
-                        errno.EMFILE,
-                        errno.ENFILE,
-                    }
+                    state.get("closure", {}).get("resource_exhaustion") is True
+                    or state.get("closure", {}).get("errno") in _RESOURCE_ERRNOS
                     for state in states
                 ):
                     stopping = True
@@ -652,6 +668,10 @@ def execute_attempt(output, issued, *, index, replicates, work=None):
                         "message": str(exc),
                         "traceback": traceback.format_exc(),
                         "errno": getattr(exc, "errno", None),
+                        "resource_exhaustion": (
+                            isinstance(exc, MemoryError)
+                            or getattr(exc, "errno", None) in _RESOURCE_ERRNOS
+                        ),
                         "stage": stage,
                         "closed_unix": time.time(),
                     },
