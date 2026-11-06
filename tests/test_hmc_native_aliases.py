@@ -247,6 +247,81 @@ class NativeAliasTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "bytes changed"):
                 native.native_build_identity()
 
+    def slepc_library(self):
+        library = self.write(self.prefix / "lib" / "libslepc-test.dylib")
+        (self.prefix / "conda-meta" / "slepc.json").write_text(
+            json.dumps(
+                {
+                    "name": "slepc",
+                    "version": "test",
+                    "build": "controlled",
+                    "files": [str(library.relative_to(self.prefix))],
+                }
+            )
+        )
+        return library
+
+    def test_slepc_external_and_sibling_different_files_rejected(self):
+        local = self.slepc_library()
+        self.parent = [str(self.local), str(local)]
+        for directory in [self.root / "external", self.sibling]:
+            for contents in [b"different SLEPc build", local.read_bytes()]:
+                with self.subTest(directory=directory, contents=contents):
+                    other = self.write(directory / "lib" / local.name, contents)
+                    self.assertFalse(local.samefile(other))
+                    self.fresh = [str(self.local), str(other)]
+                    with self.assertRaisesRegex(RuntimeError, "disagree.*libslepc"):
+                        native.native_build_identity()
+
+    def test_slepc_missing_fresh_evidence_rejected(self):
+        local = self.slepc_library()
+        self.parent = [str(self.local), str(local)]
+        with self.assertRaisesRegex(RuntimeError, "disagree.*libslepc"):
+            native.native_build_identity()
+
+    def test_slepc_matching_external_file_is_recorded(self):
+        external = self.write(self.root / "external" / "lib" / "libslepc-test.dylib")
+        self.parent = self.fresh = [str(self.local), str(external)]
+        diagnostics = {}
+        identity = native.native_build_identity(image_diagnostics=diagnostics)
+        self.assertIn(
+            {"path": str(external), "sha256": native._sha(external)},
+            identity["libraries"],
+        )
+        for phase in ["fresh", "parent"]:
+            self.assertIn(
+                str(external), [item["canonical_path"] for item in diagnostics[phase]]
+            )
+
+    def test_slepc_true_sibling_hardlink_preserves_identity_and_owner(self):
+        local = self.slepc_library()
+        alias = self.sibling / local.relative_to(self.prefix)
+        alias.hardlink_to(local)
+        self.assertTrue(local.samefile(alias))
+        self.parent = self.fresh = [str(self.local), str(local)]
+        expected = native.native_build_identity()
+        self.assertIn("slepc", expected["conda_builds"])
+        self.assertIn(
+            {"path": str(local), "sha256": native._sha(local)},
+            expected["libraries"],
+        )
+        for parent, fresh in [(local, alias), (alias, local), (alias, alias)]:
+            with self.subTest(parent=parent, fresh=fresh):
+                self.parent = [str(self.local), str(parent)]
+                self.fresh = [str(self.local), str(fresh)]
+                self.assertEqual(expected, native.native_build_identity())
+
+    def test_slepc_external_duplicate_basename_rejected(self):
+        first = self.write(self.root / "external-one" / "lib" / "libslepc-test.dylib")
+        second = self.write(self.root / "external-two" / "lib" / first.name)
+        for phase in ["fresh", "parent"]:
+            for order in [(first, second), (second, first)]:
+                with self.subTest(phase=phase, order=order):
+                    self.fresh = self.parent = [str(self.local)]
+                    setattr(self, phase, [str(self.local), *map(str, order)])
+                    with self.assertRaisesRegex(RuntimeError, "Ambiguous.*basename"):
+                        native.native_build_identity()
+
 
 if __name__ == "__main__":
     unittest.main()

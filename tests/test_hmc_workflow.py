@@ -62,7 +62,7 @@ def test_documented_sequence_preserves_fields_and_saved_results(
 
 
 def test_notebook_computation_cells_use_fine_data_and_coarse_inference(
-    tmp_path, sampling_environment
+    tmp_path, sampling_environment, monkeypatch
 ):
     import nbformat
     from nbclient import NotebookClient
@@ -74,10 +74,11 @@ def test_notebook_computation_cells_use_fine_data_and_coarse_inference(
         cell for cell in notebook.cells if "parameters" in cell.metadata.get("tags", [])
     ]
     assert len(parameters) == 1
-    # Every computation cell executes; physical rendering alone is excluded.
+    # Exercise the notebook's figure -> restored inference sequence in one kernel.
+    monkeypatch.setenv("MPLBACKEND", "Agg")
     parameters[0].source += (
         "\nnmesh = 4\nchains = 1\nwarmup = 8\ndraws = 12\n"
-        f"output = {str(tmp_path / 'notebook-run')!r}\nplot = False\n"
+        f"output = {str(tmp_path / 'notebook-run')!r}\nplot = True\n"
     )
     manager = KernelManager(kernel_name="python3")
     # Use precisely the interpreter running this qualified physical calculation.
@@ -93,15 +94,13 @@ def test_notebook_computation_cells_use_fine_data_and_coarse_inference(
         km=manager,
         timeout=600,
         resources={"metadata": {"path": str(root)}},
-        skip_cells_with_tag="plotting",
     )
     client.execute(cleanup_kc=True)
     executed = [c for c in notebook.cells if c.cell_type == "code"]
-    assert all(
-        c.execution_count is not None
-        for c in executed
-        if "plotting" not in c.metadata.get("tags", [])
-    )
+    assert all(c.execution_count is not None for c in executed)
+    for name in ("conductivity.png", "temperature-residuals.png"):
+        image = (tmp_path / "notebook-run" / name).read_bytes()
+        assert image.startswith(b"\x89PNG\r\n\x1a\n") and len(image) > 8
     with PosteriorSamples.open(tmp_path / "notebook-run") as samples:
         assert samples.load_draws().shape == (1, 12, 25)
         assert samples.summary().counts.tolist() == [12]

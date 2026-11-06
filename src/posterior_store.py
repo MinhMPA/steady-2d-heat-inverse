@@ -468,7 +468,8 @@ class RunStore:
             New calculation directory, created exclusively. Existing paths are
             refused; interrupted creation evidence is preserved.
         problem : ProblemRecord
-            Complete frozen physical law, arrays and numerical identity.
+            Complete frozen physical law, arrays and numerical identity. A
+            declared ``numerical_environment`` must match the current observation.
         run_metadata : dict
             Required positive integer ``chains`` and per-chain ``total_draws``;
             nonnegative integer ``warmup`` defaults to zero. Seed, controls,
@@ -512,19 +513,31 @@ class RunStore:
                 CREATE TABLE failures (id INTEGER PRIMARY KEY, data BLOB NOT NULL);
             """)
             metadata.setdefault("git_revision", source_revision())
+            environment = numerical_environment()
             with instance._transaction():
                 instance._connection.execute(
-                    "INSERT INTO run VALUES(1,?,?,?,?,1,?,?,?)",
+                    "INSERT INTO run VALUES(1,?,?,?,?,0,?,?,?)",
                     (
                         SCHEMA_VERSION,
                         _pack(metadata),
-                        _pack(numerical_environment()),
+                        _pack(environment),
                         0,
                         problem.problem_id,
                         problem.numerical_id,
                         _problem_content_digest(problem),
                     ),
                 )
+            # Preserve both observations if creation fails; only consistent
+            # numerical provenance may become a completed calculation.
+            if "numerical_environment" in problem.metadata and not _same(
+                problem.metadata["numerical_environment"], environment
+            ):
+                raise ValueError(
+                    "Declared numerical environment differs from the current "
+                    "observation; run creation is incomplete."
+                )
+            with instance._transaction():
+                instance._connection.execute("UPDATE run SET complete=1 WHERE id=1")
             instance._problem = problem
             instance._write_status()
             return instance
