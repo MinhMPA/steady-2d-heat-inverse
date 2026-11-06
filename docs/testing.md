@@ -103,3 +103,27 @@ has itself been exercised; preserve the known-conflicting FEM environment.
 Sampling convergence, fixed heat-solve accuracy, mesh approximation and prior
 adequacy require separate evidence. The planned report is
 `docs/validation/hmc-mesh-study.md`; no study results are asserted by these tests.
+
+## Fine-truth mesh and prior studies
+
+`tests/test_hmc_validation.py` checks shared observation identity, the physical
+interface-distance convention, predeclared one-at-a-time priors, reproducible
+contiguous-block uncertainty, predictive observation noise, and visible missing
+outcomes. Mock temperatures test bookkeeping only; they do not establish physical
+truth refinement. The exact-continuation comparison excludes measured wall time
+while comparing the scientific histories and solve counts exactly.
+
+The long [mesh/interface calculations](validation/hmc-mesh-study.md) require both
+truth records, all six baseline and eight sensitivity outcomes, actual-data force
+qualification, ordinary four-chain diagnostics, report/notebook figure inspection,
+and a warning-free Sphinx build. No absent or short calculation counts as Task 14
+completion. Preserve failures and report insufficient independent blocks for cost
+uncertainty as unresolved.
+
+The Task 14 review regressions in `tests/test_hmc_mesh_review_fixes.py` check
+unconverged evidence, abandoned physical work, interrupted result publication,
+immutable truth-refinement records, explicit extension/reanalysis with preserved
+history, and isolated figure rendering. The optional native test performs two
+successive n4 quadrilateral short-chain physical summaries and figure renders,
+checking native-library identity before and after rendering. Its deliberately
+short chains remain unqualified and do not establish any Task 14 science outcome.

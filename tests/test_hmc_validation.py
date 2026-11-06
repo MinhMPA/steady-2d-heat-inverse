@@ -510,3 +510,400 @@ def test_extension_keeps_largest_saved_draw_target(tmp_path, monkeypatch):
         draws=2000,
     )
     assert calls == [8192]
+
+
+def test_interface_coverage_reports_regions_separately():
+    from hmc_validation import interface_coverage
+
+    xy = np.array([[0.62, 0.0], [0.1, 0.0], [0.9, 0.0]])
+    report = interface_coverage(xy, [0.5, 0.5, 2.5], [1.5, 1.5, 3.5], [3.0, 1.0, 3.0])
+    assert report["near_count"] == 1
+    assert report["near_coverage"] == 0.0
+    assert report["away_count"] == 2
+    assert report["away_coverage"] == 1.0
+
+
+def test_interface_coverage_empty_region_is_unresolved():
+    from hmc_validation import interface_coverage
+
+    report = interface_coverage([[0.1, 0.0]], [0.5], [1.5], [1.0])
+    assert report["near_coverage"] is None
+    with pytest.raises(ValueError):
+        interface_coverage([[0.1, 0.0]], [2.0], [1.0], [1.0])
+
+
+def test_fine_truth_refines_before_one_frozen_noise_draw(tmp_path, monkeypatch):
+    mesh = _mesh_mechanics_only(monkeypatch)
+
+    calls = []
+    config = StudyConfig()
+
+    def temperatures(config, truth, nmesh):
+        calls.append(nmesh)
+        # First comparison fails; the next is below 0.1 sigma.
+        offset = {128: 0.001, 256: 0.00001, 512: 0.0}[nmesh]
+        return np.full(256, 300.0 + offset)
+
+    monkeypatch.setattr(mesh, "_truth_temperatures", temperatures)
+    monkeypatch.setattr(mesh.hv, "_require_native", lambda manifest: None)
+    path = mesh.make_truth_data(config, truth="smooth", output=tmp_path / "truth")
+    assert calls == [128, 256, 512]
+    record = json.loads(path.with_suffix(".json").read_text())
+    assert record["truth_mesh"] == 512
+    assert len(record["refinement"]) == 2
+    assert record["refinement"][-1]["maximum_change_over_sigma"] < 0.1
+    with np.load(path) as archive:
+        expected = 300.0 + np.random.default_rng(20261026).normal(0, config.sigma, 256)
+        assert np.array_equal(archive["values"], expected)
+        assert np.array_equal(archive["noiseless"], np.full(256, 300.0))
+    original = path.read_bytes()
+    assert mesh.make_truth_data(config, truth="smooth", output=path.parent) == path
+    assert path.read_bytes() == original
+    assert calls == [128, 256, 512]
+    # Each mesh reads the same bytes; the physical prior has no mesh-dependent scale.
+    for nmesh in config.inference_meshes:
+        observation, info = mesh._truth_observations(config, path)
+        assert info["array_sha256"] == record["array_sha256"]
+        assert observation[1].tobytes() == expected.tobytes()
+        assert observation[0].tobytes() == config.sensor_points.tobytes()
+        assert observation[2].tobytes() == np.asarray(config.sigma).tobytes()
+        assert mesh._prior_case(config, nmesh) == "baseline"
+
+
+def test_truth_data_detects_changed_bytes(tmp_path, monkeypatch):
+    mesh = _mesh_mechanics_only(monkeypatch)
+
+    monkeypatch.setattr(mesh, "_truth_temperatures", lambda *a: np.full(256, 300.0))
+    monkeypatch.setattr(mesh.hv, "_require_native", lambda manifest: None)
+    path = mesh.make_truth_data(StudyConfig(), truth="sharp", output=tmp_path / "truth")
+    with path.open("ab") as stream:
+        stream.write(b"changed")
+    with pytest.raises(ValueError, match="changed"):
+        mesh._truth_observations(StudyConfig(), path)
+
+
+def test_prior_sensitivity_is_predeclared_and_one_at_a_time():
+    from dataclasses import replace
+    from hmc_mesh_study import _prior_case
+
+    config = StudyConfig()
+    for key, value in (("kappa", 1.0), ("kappa", 4.0), ("tau", 0.5), ("tau", 2.0)):
+        changed = replace(config, **{key: value})
+        assert _prior_case(changed, 16) != "baseline"
+        with pytest.raises(ValueError):
+            _prior_case(changed, 32)
+    with pytest.raises(ValueError):
+        _prior_case(replace(config, kappa=1.0, tau=0.5), 16)
+
+
+def test_contiguous_block_uncertainty_is_seeded_and_refuses_short_chains():
+    from hmc_mesh_study import _block_uncertainty
+
+    rng = np.random.default_rng(8)
+    values = rng.normal(size=(4, 256, 2))
+    acceptance = rng.uniform(0.7, 1.0, (4, 256))
+    costs = np.ones((4, 256))
+    # An independent analytical ESS stand-in isolates resampling mechanics.
+    ess = lambda x: np.full(x.shape[-1], x.shape[0] * x.shape[1], dtype=float)
+    result = _block_uncertainty(
+        values, acceptance, costs, costs, correlation_time=3.0, seed=2, ess=ess
+    )
+    assert result["resamples"] == 500
+    assert result["block_length"] >= 6
+    assert result["status"] == "resolved"
+    assert result == _block_uncertainty(
+        values, acceptance, costs, costs, correlation_time=3.0, seed=2, ess=ess
+    )
+    assert result["acceptance_interval"][0] < result["acceptance_interval"][1]
+    short = _block_uncertainty(
+        values[:, :10],
+        acceptance[:, :10],
+        costs[:, :10],
+        costs[:, :10],
+        correlation_time=3.0,
+        seed=2,
+        ess=ess,
+    )
+    assert short["status"] == "unresolved"
+
+
+def test_predictive_residuals_include_measurement_noise():
+    from hmc_mesh_study import _predictive_summary
+
+    result = _predictive_summary(
+        np.full((4, 100, 2), 300.0),
+        np.array([300.0, 300.001]),
+        np.asarray(0.001),
+        seed=1,
+    )
+    assert np.allclose(result["predictive_sd"], 0.001)
+    assert np.allclose(result["standardized_residual"], [0.0, -1.0])
+    assert np.all(np.asarray(result["upper"]) > np.asarray(result["lower"]))
+
+
+def test_missing_mesh_report_lists_all_fourteen_outcomes(tmp_path):
+    from hmc_validation import write_study_report
+
+    path = tmp_path / "report.md"
+    write_study_report([], path)
+    report = path.read_text()
+    assert report.count("| missing |") == 14
+    assert "spatial diagnostic" in report
+    assert "not complete" in report
+
+
+def _mesh_mechanics_only(monkeypatch):
+    """Replace native provenance only for array/record mechanics, never physics."""
+    import hmc_mesh_study as mesh
+    from dataclasses import asdict
+
+    def manifest(config, output, *, kind, extra):
+        from pathlib import Path
+
+        output = Path(output)
+        output.mkdir(parents=True, exist_ok=True)
+        identity = dict(kind=kind, config=asdict(config), extra=extra)
+        record = dict(identity=identity, identity_sha256=mesh.hv._hash(identity))
+        mesh.hv._write(output / "manifest.json", record)
+        return record
+
+    monkeypatch.setattr(mesh.hv, "_study_manifest", manifest)
+    monkeypatch.setattr(mesh.hv, "_require_native", lambda manifest: None)
+    monkeypatch.setattr(mesh, "_truth_temperatures", lambda *args: np.full(256, 300.0))
+    return mesh
+
+
+def test_actual_truth_pilot_mismatch_is_preserved_before_sampling(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
+
+    mesh = _mesh_mechanics_only(monkeypatch)
+    config = replace(StudyConfig(), pilot_output=str(tmp_path / "pilot"))
+    path = mesh.make_truth_data(config, truth="smooth", output=tmp_path / "truth")
+    pilot = tmp_path / "pilot"
+    pilot.mkdir()
+    mesh.hv._write(
+        pilot / "manifest.json",
+        {"identity": {"extra": {"observation_sha256": "wrong-data"}}},
+    )
+    monkeypatch.setattr(mesh.hv, "_qualified_pilot", lambda c: ({}, "pilot-hash"))
+    monkeypatch.setattr(
+        mesh.hv,
+        "_problem",
+        lambda *args: pytest.fail("Mismatched data must never launch a posterior."),
+    )
+    result = mesh.run_mesh_study(
+        config, data_path=path, nmesh=16, output=tmp_path / "mesh"
+    )
+    assert result["status"] == "failed"
+    assert "do not match" in result["failure"]["message"]
+    assert (tmp_path / "mesh" / "failure.json").exists()
+    report = tmp_path / "report.md"
+    mesh.write_study_report([tmp_path / "mesh" / "manifest.json"], report)
+    assert "| failed |" in report.read_text()
+    assert report.read_text().count("| missing |") == 13
+    with pytest.raises(RuntimeError, match="Preserved"):
+        mesh.run_mesh_study(config, data_path=path, nmesh=16, output=tmp_path / "mesh")
+    saved = tmp_path / "mesh" / "result.json"
+    saved.write_text(saved.read_text().replace('"failed"', '"sampled"'))
+    with pytest.raises(ValueError, match="checksum"):
+        mesh.write_study_report([tmp_path / "mesh" / "manifest.json"], report)
+
+
+def test_refinement_evidence_cannot_claim_another_truth_mesh(tmp_path, monkeypatch):
+    mesh = _mesh_mechanics_only(monkeypatch)
+    path = mesh.make_truth_data(StudyConfig(), truth="sharp", output=tmp_path / "truth")
+    record = json.loads(path.with_suffix(".json").read_text())
+    record["truth_mesh"] = 128
+    path.with_suffix(".json").write_text(json.dumps(record))
+    with pytest.raises(ValueError, match="refinement|checksum"):
+        mesh._truth_observations(StudyConfig(), path)
+
+
+def test_block_uncertainty_recomputes_ess_for_every_paired_resample():
+    from hmc_mesh_study import _block_uncertainty
+
+    rng = np.random.default_rng(17)
+    values = rng.normal(size=(4, 128, 1))
+    calls = []
+
+    def measured_ess(sample):
+        calls.append(sample.copy())
+        return np.array([sample.size / (1 + abs(sample.mean()))])
+
+    costs = np.exp(values[..., 0])
+    result = _block_uncertainty(
+        values,
+        np.full((4, 128), 0.8),
+        costs,
+        2 * costs,
+        correlation_time=2,
+        seed=19,
+        ess=measured_ess,
+    )
+    assert len(calls) == 500
+    assert not np.array_equal(calls[0], calls[1])
+    assert (
+        result["ess_per_second_intervals"][0][0]
+        < result["ess_per_second_intervals"][0][1]
+    )
+    assert np.allclose(
+        np.asarray(result["ess_per_second_intervals"]) / 2,
+        result["ess_per_solve_intervals"],
+    )
+    # Within each sampled contiguous block, the original chain's neighboring
+    # states remain consecutive; no synthetic transitions inside a block.
+    for chain in range(4):
+        for start in range(0, 128, result["block_length"]):
+            block = calls[0][chain, start : start + result["block_length"], 0]
+            original = np.flatnonzero(values[chain, :, 0] == block[0])[0]
+            assert np.array_equal(
+                block, values[chain, original : original + len(block), 0]
+            )
+
+
+def test_physical_report_keeps_sensor_worst_case_and_cost_labels(tmp_path, monkeypatch):
+    """Synthetic chains exercise summary assembly, never qualify heat physics."""
+    from types import SimpleNamespace
+    import hmc_mesh_study as mesh
+    import posterior_diagnostics as diagnostics
+    from posterior_diagnostics import DiagnosticReport
+
+    rng = np.random.default_rng(23)
+    fields = np.exp(rng.normal(size=(4, 256, 4)))
+    temperatures = 300 + rng.normal(size=(4, 256, 2)) * 0.001
+    xy = np.asarray(mesh.hv.RANK_POINTS)
+    weights = np.array([[0.25] * 4, [0.5, 0.5, -0.5, -0.5], [0.5, -0.5, 0.5, -0.5]])
+    monkeypatch.setattr(
+        diagnostics,
+        "_physical_observables",
+        lambda record: (weights, np.zeros(2, dtype=bool)),
+    )
+    monkeypatch.setattr(mesh, "_ess", lambda values: np.full(values.shape[-1], 500.0))
+    rows = [
+        [
+            SimpleNamespace(
+                h=fields[c, d],
+                sensor_temperature=temperatures[c, d],
+                statistics=dict(
+                    acceptance_probability=0.7 + 0.3 * rng.random(),
+                    delta_energy=rng.normal(),
+                    trajectory_seconds=1.0,
+                    solve_counts={"heat": 3, "adjoint": 2},
+                ),
+            )
+            for d in range(256)
+        ]
+        for c in range(4)
+    ]
+    record = SimpleNamespace(
+        arrays=dict(
+            coordinates=xy,
+            sensor_values=np.full(2, 300.0),
+            sensor_sigma=np.asarray(0.001),
+            sensor_points=xy[:2],
+        )
+    )
+    summary = SimpleNamespace(
+        coordinates=xy,
+        cells=np.array([[0, 1, 2, 3]]),
+        mean=fields.mean(axis=(0, 1)),
+        quantiles=np.quantile(fields, [0.05, 0.5, 0.95], axis=(0, 1)),
+    )
+    store = SimpleNamespace(
+        records=lambda c: iter(rows[c]),
+        checkpoint=lambda c: SimpleNamespace(counters={"heat": 800, "adjoint": 600}),
+    )
+    samples = SimpleNamespace(
+        metadata={"chains": 4},
+        _counts=lambda: np.full(4, 256),
+        _record=record,
+        _store=store,
+        summary=lambda: summary,
+        coordinates=xy,
+        output=tmp_path / "posterior",
+    )
+
+    def stats(locations, ess):
+        count = len(locations)
+        return dict(
+            bulk_ess=[ess] * count,
+            tail_ess=[ess] * count,
+            analytically_fixed=[False] * count,
+            locations=locations,
+            mean_mcse=[0.01] * count,
+            quantile_mcse=[[0.02] * count] * 3,
+        )
+
+    report = DiagnosticReport(
+        status="qualified",
+        qualified=True,
+        per_quantity=dict(
+            conductivity=stats(xy.tolist(), 800),
+            area_mean=stats([None], 800),
+            left_minus_right=stats([None], 800),
+            bottom_minus_top=stats([None], 800),
+            sensor_temperature=stats(xy[:2].tolist(), 500),
+        ),
+        worst_locations={},
+        divergences=0,
+        counts=[256] * 4,
+        package_version="mechanics",
+        reasons=[],
+        probabilities=[0.05, 0.5, 0.95],
+        common_draws=256,
+        requested_total=256,
+        identity={},
+        settings={},
+    )
+    result = mesh._physical_evidence(StudyConfig(), samples, report, "sharp", tmp_path)
+    assert len(result["cost"]["labels"]) == len(result["cost"]["ess"]) == 7
+    assert "sensor_temperature" in result["cost"]["labels"][-1]
+    assert result["shared_locations"][-1]["location"] == xy[0].tolist()
+    assert result["cost"]["retained_seconds"] == 1024
+    assert result["cost"]["retained_heat_adjoint_solves"] == 5120
+    assert len(result["predictive"]["mean"]) == 2
+    assert result["predictive"]["includes_observation_noise"]
+    assert result["uncertainty"]["status"] == "resolved"
+
+
+def test_small_mesh_truth_temperature_paths():
+    """Tiny native solves check both declared truth paths, never fine refinement."""
+    import os
+
+    if os.environ.get("S2DHI_HMC_QUALIFICATION") != "1":
+        pytest.skip("optional native heat study mechanics")
+    from hmc_mesh_study import _truth_temperatures
+
+    for truth in ("smooth", "sharp"):
+        for nmesh in (2, 4):
+            readings = _truth_temperatures(StudyConfig(), truth, nmesh)
+            assert readings.shape == (256,)
+            assert np.isfinite(readings).all()
+            assert np.all(readings > 300.0)
+            assert np.all(readings < 302.0)
+
+
+def test_efficiency_comparisons_use_independent_resampling_streams():
+    from hmc_mesh_study import _comparison_uncertainty
+
+    first = dict(
+        status="resolved",
+        seed=10,
+        acceptance_resamples=[0.7] * 500,
+        ess_per_second_resamples=[[2.0] * 7] * 500,
+        ess_per_solve_resamples=[[4.0] * 7] * 500,
+    )
+    second = dict(
+        status="resolved",
+        seed=11,
+        acceptance_resamples=[0.8] * 500,
+        ess_per_second_resamples=[[6.0] * 7] * 500,
+        ess_per_solve_resamples=[[2.0] * 7] * 500,
+    )
+    result = _comparison_uncertainty(first, second)
+    assert np.allclose(result["acceptance_difference_interval"], [0.1, 0.1])
+    assert np.allclose(result["ess_per_second_ratio_intervals"], np.full((5, 2), 3.0))
+    assert np.allclose(result["ess_per_solve_ratio_intervals"], np.full((5, 2), 0.5))
+    assert _comparison_uncertainty(first, first)["status"] == "unresolved"

@@ -578,6 +578,14 @@ def test_half_integer_duration_rounds_up_and_saves_actual_duration(
         assert stats["duration"] == 1.25
         assert stats["num_steps"] == 13
         assert stats["actual_duration"] == 13 * 0.1
+        assert stats["trajectory_seconds"] > 0
+        assert set(stats["solve_counts"]) == {
+            "heat",
+            "adjoint",
+            "heat_iterations",
+            "adjoint_iterations",
+        }
+        assert all(value >= 0 for value in stats["solve_counts"].values())
 
 
 @pytest.mark.parametrize("boundary", ["initialization", "trajectory"])

@@ -229,3 +229,14 @@ database alone is not a backup.
 The original integrated-misfit, roughness-regularized reconstruction remains
 available with its original mathematics. Its regularization parameter and objective
 do not become this fixed-sensor posterior's noise law or prior.
+
+## Smooth and sharp physical comparisons
+
+The [mesh and interface study](validation/hmc-mesh-study.md) freezes one refined
+observation realization for each truth, then uses identical physical measurements
+at inference meshes 16, 32 and 64. `make_truth_data`, `run_mesh_study`,
+`interface_coverage`, and `write_study_report` are available from `hmc_validation`.
+Each actual observation set and fixed prior requires its matching numerical pilot.
+Eight predeclared n16 prior variations are separate posteriors. The report retains
+missing and failed outcomes, distinguishes Monte Carlo errors from mesh/prior
+changes, and includes observation noise in predictive residuals.

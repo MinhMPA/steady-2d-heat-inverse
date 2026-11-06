@@ -182,4 +182,11 @@ def assert_runs_equal(a, b):
                     right.records(chain, phase=phase)
                 )
                 assert len(x) == len(y)
-                assert all(_same(_fields(u), _fields(v)) for u, v in zip(x, y))
+                for u, v in zip(x, y):
+                    first, second = _fields(u), _fields(v)
+                    # Elapsed time is measured evidence, not part of Hamiltonian state.
+                    first["statistics"] = dict(first["statistics"])
+                    second["statistics"] = dict(second["statistics"])
+                    first["statistics"].pop("trajectory_seconds", None)
+                    second["statistics"].pop("trajectory_seconds", None)
+                    assert _same(first, second)

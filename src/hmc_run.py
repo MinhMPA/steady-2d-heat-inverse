@@ -287,6 +287,7 @@ def run_chains(problem, *, initial_states, request: RunRequest, store, progress=
                 index = cp.warmup_done if phase == "warmup" else cp.draws_done
                 committed = False
                 baseline = _solves(posterior)
+                trajectory_started = monotonic()
                 next_key, duration_key, transition_key = jax.random.split(
                     _restore_key(cp.rng_state), 3
                 )
@@ -334,6 +335,8 @@ def run_chains(problem, *, initial_states, request: RunRequest, store, progress=
                     step_size=step_size,
                     duration=duration,
                     actual_duration=num_steps * step_size,
+                    trajectory_seconds=monotonic() - trajectory_started,
+                    solve_counts=_difference(_solves(posterior), baseline),
                 )
                 cp = replace(
                     cp,

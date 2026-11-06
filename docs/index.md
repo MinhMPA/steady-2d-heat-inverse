@@ -28,6 +28,7 @@ usage
 testing
 hmc
 validation/hmc-numerics
+validation/hmc-mesh-study
 api/index
 ```
 

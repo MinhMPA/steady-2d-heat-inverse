@@ -141,8 +141,23 @@ class StudyConfig:
     optimizer_ftol: float = 1e-12
     minimum_tolerance_index: int = 0
     pilot_output: str = "runs/hmc-pilot"
+    fine_truth_meshes: tuple = (128, 256)
+    truth_noise_seeds: tuple = (20261026, 20261027)
+    block_resamples: int = 500
+    block_minimum_blocks: int = 8
 
     def __post_init__(self):
+        object.__setattr__(self, "fine_truth_meshes", tuple(self.fine_truth_meshes))
+        object.__setattr__(self, "truth_noise_seeds", tuple(self.truth_noise_seeds))
+        if (
+            self.fine_truth_meshes != (128, 256)
+            or self.truth_noise_seeds != (20261026, 20261027)
+            or self.block_resamples != 500
+            or self.block_minimum_blocks != 8
+        ):
+            raise ValueError(
+                "The fine-truth and block-uncertainty experiment is predeclared."
+            )
         object.__setattr__(self, "inference_meshes", tuple(self.inference_meshes))
         object.__setattr__(self, "step_size_bounds", tuple(self.step_size_bounds))
         if self.inference_meshes != (16, 32, 64) or self.cell_type != "quadrilateral":
@@ -408,6 +423,8 @@ def _study_manifest(config, output, *, kind, extra):
         for name in (
             "hmc_validation",
             "hmc_sbc_worker",
+            "hmc_mesh_study",
+            "benchmark_utils",
             "posterior_diagnostics",
             "posterior_samples",
         )
@@ -1785,3 +1802,41 @@ def run_sbc(config, output, *, replicates=100, workers=1):
             calibration_complete=summary["calibration_complete"],
         )
         return _json_value(summary)
+
+
+# Lazy public study interfaces keep ordinary numerical helpers dependency-light.
+def make_truth_data(config, *, truth, output):
+    """Freeze refined smooth/sharp observations; see hmc_mesh_study.make_truth_data."""
+    from hmc_mesh_study import make_truth_data as calculate
+
+    return calculate(config, truth=truth, output=output)
+
+
+def run_mesh_study(
+    config, *, data_path, nmesh, output, total_draws=None, reanalyze=False
+):
+    """Compare a declared physical posterior; see hmc_mesh_study.run_mesh_study."""
+    from hmc_mesh_study import run_mesh_study as calculate
+
+    return calculate(
+        config,
+        data_path=data_path,
+        nmesh=nmesh,
+        output=output,
+        total_draws=total_draws,
+        reanalyze=reanalyze,
+    )
+
+
+def interface_coverage(coordinates, lower, upper, truth_values, *, width=0.05):
+    """Spatial inclusion around the declared physical interface; not calibration."""
+    from hmc_mesh_study import interface_coverage as calculate
+
+    return calculate(coordinates, lower, upper, truth_values, width=width)
+
+
+def write_study_report(manifests, destination):
+    """Write evidence-linked mesh/prior comparison with all missing outcomes."""
+    from hmc_mesh_study import write_study_report as calculate
+
+    return calculate(manifests, destination)
