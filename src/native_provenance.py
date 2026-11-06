@@ -145,7 +145,70 @@ def _sampling_artifacts():
     }
 
 
-def native_build_identity():
+def _canonical_image(observed, prefix):
+    """Name a proven sibling hardlink by its same-suffix active-prefix path."""
+    if observed.is_relative_to(prefix) or not observed.is_relative_to(prefix.parent):
+        return observed
+    relative = observed.relative_to(prefix.parent)
+    if len(relative.parts) < 2:
+        return observed
+    candidate = prefix.joinpath(*relative.parts[1:]).resolve()
+    if not candidate.is_relative_to(prefix) or not candidate.is_file():
+        return observed
+    try:
+        return candidate if observed.samefile(candidate) else observed
+    except OSError:
+        # An unprovable alias retains its observed identity and strict comparison.
+        return observed
+
+
+def _library_evidence(images, prefix, select, diagnostics=None):
+    """Normalize before selection; verify observed bytes before deduplicating."""
+    normalized = []
+    for image in images:
+        observed = Path(image).resolve()
+        canonical = _canonical_image(observed, prefix)
+        if observed.is_file() and select(canonical):
+            normalized.append((canonical, observed, str(image)))
+    by_path = {}
+    by_basename = {}
+    for canonical, observed, loader_path in sorted(normalized):
+        digest = _sha(observed)
+        if canonical != observed and (
+            _sha(canonical) != digest or not observed.samefile(canonical)
+        ):
+            raise RuntimeError(
+                "Native numerical-library alias changed during inspection: "
+                f"{observed} -> {canonical}"
+            )
+        item = {"path": str(canonical), "sha256": digest}
+        key = canonical.name.lower()
+        if key in by_basename and by_basename[key]["path"] != item["path"]:
+            raise RuntimeError(
+                "Ambiguous numerical-library basename: "
+                f"{key}: {by_basename[key]['path']} and {canonical}"
+            )
+        if canonical in by_path and by_path[canonical] != item:
+            raise RuntimeError(
+                "Native numerical-library bytes changed during inspection: "
+                + str(canonical)
+            )
+        by_basename[key] = item
+        by_path[canonical] = item
+        if diagnostics is not None:
+            diagnostics.append(
+                {
+                    "loader_path": loader_path,
+                    "observed_path": str(observed),
+                    "canonical_path": str(canonical),
+                    "sha256": digest,
+                    "sibling_samefile_verified": canonical != observed,
+                }
+            )
+    return list(by_path.values())
+
+
+def native_build_identity(*, image_diagnostics=None):
     """Return actual native evidence from this interpreter and fresh resolution.
 
     Fresh-process resolution uses the active interpreter, its search path and
@@ -156,6 +219,13 @@ def native_build_identity():
     Executable/source searches affect identity through their resolved components;
     unused search entries and a shell CONDA_PREFIX label are not numerical inputs.
     Native loader controls remain explicit because they can change symbol loading.
+
+    A sibling-installation path is replaced by its active-prefix same-suffix name
+    only after samefile proof and byte verification. Schema 2 records this policy;
+    old-source calculations require new qualification and cannot be migrated.
+    Optional ``image_diagnostics`` receives fresh/parent loader observations and
+    alias proofs separately from the equality-bearing return value. Loader paths
+    are those supplied by _loaded_images (which already resolves symlinks).
     """
     result = subprocess.run(
         [sys.executable, "-c", _PROBE],
@@ -176,35 +246,37 @@ def native_build_identity():
         )
     probe = json.loads(lines[0].split("=", 1)[1])
     prefix = Path(sys.prefix).resolve()
-    selected = [
-        Path(path)
-        for path in probe["images"]
-        if Path(path).is_file()
-        and (
-            Path(path).is_relative_to(prefix)
-            or Path(path).name.lower().startswith(_COMPONENT_PREFIXES)
+    if image_diagnostics is not None:
+        image_diagnostics.update({"fresh": [], "parent": []})
+    libraries = _library_evidence(
+        probe["images"],
+        prefix,
+        lambda path: (
+            path.is_relative_to(prefix)
+            or path.name.lower().startswith(_COMPONENT_PREFIXES)
             or "site-packages" in str(path)
-        )
-    ]
-    libraries = [{"path": str(path), "sha256": _sha(path)} for path in selected]
+        ),
+        None if image_diagnostics is None else image_diagnostics["fresh"],
+    )
     fresh = {Path(item["path"]).name.lower(): item for item in libraries}
-    for parent in _loaded_images():
-        path = Path(parent)
-        key = path.name.lower()
-        numerical = key.startswith(_COMPONENT_PREFIXES) or key in fresh
-        if not numerical or not path.is_file():
-            continue
-        if (
-            key not in fresh
-            or str(path) != fresh[key]["path"]
-            or _sha(path) != fresh[key]["sha256"]
-        ):
+    parents = _library_evidence(
+        _loaded_images(),
+        prefix,
+        lambda path: (
+            path.name.lower().startswith(_COMPONENT_PREFIXES)
+            or path.name.lower() in fresh
+        ),
+        None if image_diagnostics is None else image_diagnostics["parent"],
+    )
+    for parent in parents:
+        key = Path(parent["path"]).name.lower()
+        if key not in fresh or parent != fresh[key]:
             raise RuntimeError(
                 "Loaded parent and fresh-process numerical libraries disagree: "
-                + str(path)
+                + parent["path"]
             )
     records = {}
-    loaded_paths = {str(path) for path in selected}
+    loaded_paths = {item["path"] for item in libraries}
     important = {
         "petsc",
         "mpich",
@@ -231,7 +303,8 @@ def native_build_identity():
             }
             records[info["name"]]["record_sha256"] = _sha(entry)
     return {
-        "schema": 1,
+        "schema": 2,
+        "image_path_policy": "active_prefix_same_suffix_sibling_samefile_and_sha256",
         "compiler": {name: _compiler(name) for name in ("CC", "CXX")},
         "interpreter": str(Path(sys.executable).resolve()),
         "prefix": str(prefix),
