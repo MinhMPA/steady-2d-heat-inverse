@@ -3,9 +3,16 @@
 The first formal mesh-16 force check failed before any trajectories were run.
 After the temperature-origin correction and independent review, the numerical
 pilot at source `40f1324` completed on meshes 16, 32 and 64. Its evidence is
-summarized below. The combined revision changes the integration implementation,
-public defaults and calibration execution; it requires a **new matching pilot**.
-The 100 independent heat calibration experiments remain **incomplete**.
+summarized below. The matching pilot for the revised integration, defaults and
+calibration execution completed at source `7196c0a` on all three meshes. The 100 independent
+heat calibration experiments remain **incomplete**. The campaign is preserved
+after ten qualified posteriors, one failed warmup and two cooperative interruptions.
+Fixed-start observations support inadequate Hamiltonian time resolution as the
+explanation of the failed warmup. A smaller-spacing candidate is prepared; its
+new pilots are held pending resolution of a remaining numerical-identity
+mismatch, and the full calibration remains incomplete. The reviewed library-identity
+correction and smooth/sharp study machinery are committed at `42b9b71` and
+`cd998f6`, respectively. Their checks and remaining limits are recorded below.
 
 ## The posterior being tested
 
@@ -305,9 +312,9 @@ execution checks passed 20 tests in 2.90 s
 (`task-13-combined-fix2-final-original.log`). Its full suite before these fixes
 passed 362 tests and four subtests, with 24 intentional optional skips, in
 620.50 s. The earlier full qualified suite is not claimed as a post-fix pass.
-Scoped review of these corrections remains pending; the corrected revision
-still requires its new matching numerical pilot and all 100 calibration
-experiments.
+Both independent scoped reviews approved these corrections at `7196c0a`.
+The matching numerical pilot has completed; all 100 calibration experiments
+and scientific evidence review remain required before Task 13 is complete.
 
 Public `HMCControls` now uses initial spacing `6.5e-4`, bounds
 `(1e-6, 1.3e-3)` and spread `1.0`. These settings combine the measured local
@@ -319,8 +326,236 @@ zero warmup still needs an explicitly supplied spacing and disabled adaptation.
 The evidence is conditional on the reference prior, observations and meshes;
 these controls are not a universal stability guarantee. Explicit study controls
 and the notebook's initial spacing `5e-4` and ceiling `1e-3` remain unchanged.
-The final combined numerical/study revision requires a new matching pilot before
+The final combined numerical/study revision used a new matching pilot before
 SBC. Its source identity cannot append to the earlier pilot's chains.
+
+## Matching numerical pilot and calibration progress, 2026-11-05
+
+The complete pilot at `7196c0a` used the same fixed physical observations,
+prior, seeds and four-chain lengths as the earlier pilot. Each row below
+contains four chains with 256 warmup and 256 retained iterations per chain.
+Every declared spread criterion passed, with no failed PDE solves or retained
+divergences. Spread 1 was selected. The frozen `(rtol,atol)` pairs are
+`(1e-10,1e-12)` at meshes 16 and 32, and `(1e-12,1e-14)` at mesh 64.
+
+| Mesh | Spread | Sampling seconds | Minimum ESS | Worst R-hat |
+| --- | --- | --- | --- | --- |
+| 16 | 0.1 | 2295.81 | 514.34 | 1.014615 |
+| 16 | 0.3 | 2341.87 | 558.31 | 1.015898 |
+| 16 | 1 | 2253.60 | 443.71 | 1.012507 |
+| 32 | 1 | 5333.42 | 466.04 | 1.016126 |
+| 64 | 1 | 23744.09 | 440.28 | 1.017080 |
+
+These short pilot chains remain production-unqualified because their worst
+R-hat exceeds 1.01. The initial production request is 1000 warmup and 2000
+retained iterations per chain, subject to actual diagnostics and continuation.
+
+A read-only comparison against `40f1324` found exact equality of all stored
+physical fields, latent coordinates, sensor predictions and trajectory statistics
+for all 10240 pilot trajectories (12929843 integration steps). This verifies
+these five fixed-seed histories only. The mesh-16 spread-0.1 calculation took
+2295.81 s versus 4141.13 s previously, a measured factor 1.80; system load was
+not controlled, and the timing is not a universal performance guarantee.
+
+Actual command:
+
+```bash
+python scripts/run_hmc_study.py pilot --config runs/hmc_reference_parallel.json --output runs/hmc-pilot-shared-target
+```
+
+The run configuration differs from `validation/hmc_reference.json` only in
+`pilot_output`, set to `runs/hmc-pilot-shared-target` before the experiment.
+The immutable pilot manifest is `runs/hmc-pilot-shared-target/manifest.json`,
+with identity `cf42944b4dccf8a03273054ed88700268ff48cba6fef413a6cc1ca1817a61d42`.
+The qualification record is `runs/hmc-pilot-shared-target/qualification.json`,
+whose SHA256 is `59dfda67e0778d5fd07e64e0e2fea5346bcb8d067bd86a5a2732c1071a2e7f21`.
+Together these records contain the actual numerical environment, force
+comparisons and chain checksums. The full comparison script and JSON are preserved as
+`task-13-all-pilot-histories.py` and `.json` in the task evidence directory.
+
+After the pilot completed and its identity/checksums were verified, the fixed
+100-index calibration experiment began with two independent workers:
+
+```bash
+python scripts/run_hmc_study.py sbc --config runs/hmc_reference_parallel.json --output runs/hmc-sbc-shared-target --replicates 100 --workers 2
+```
+
+Before the cooperative stop on 2026-11-05 at 16:13 UTC, replicas 0 through 9
+each qualified with four chains and 2000 retained draws per chain. Replica 10
+encountered a heat-solve failure during the second chain's warmup: PETSc reason
+`-9`, nonfinite residual and zero solver iterations. Its first chain had completed
+1000 warmup and 2000 retained iterations. The generated truth, data, failed
+position and all committed work are preserved for diagnosis. Replicas 11 and 12
+closed cooperatively at saved trajectory boundaries. This partial campaign does
+not support a calibration conclusion.
+
+The first two posterior ranks are `[72,21,11,83,20]` and `[55,90,18,49,71]` in
+the declared five-quantity order. All original indices, truths, observations,
+chains, failures and continuation records remain part of this preserved
+100-experiment study. Its manifest identity is
+`1fd2bddfc2ab4fcb3258d1f8e7fb91d2c78989b0d27d7de92282874eff44821d`.
+
+## Failed-warmup diagnosis and candidate spacing, 2026-11-06
+
+Evidence names in this section and the next are relative to
+`.superpowers/sdd/2026-10-26-full-field-blackjax-hmc/`.
+
+The immediate fatal arithmetic is now localized: the failed field has positive,
+finite conductivity `2.10245e249` to `3.21445e306`, but its assembled heat matrix
+and source vector contain nonfinite entries. This establishes assembly overflow
+before an iterative-solver failure alone could explain the event; the individual
+overflowing assembly operation has not been isolated. A failed heat evaluation
+at a finite field still stops the calculation and preserves its evidence.
+
+The Hamiltonian error grows much earlier, while conductivity is ordinary. An
+exact saved-key replay reproduced the first returned state and endpoint energy
+error, and the next trajectory's failed position. The first trajectory, with
+spacing `0.00065`, ended at `Delta H=-15684.024`. Its ordinary Metropolis
+acceptance is one because energy decreased; step-size adaptation then increased
+the next spacing to its `0.0013` cap. That next trajectory already had
+`Delta H=-165286.496` after one step and a maximum absolute error `2.47843e7`
+by step 12. At step 11, conductivity ranged only from `0.62446` to `1.37769`.
+The eventual extreme-conductivity assembly overflow therefore follows an earlier
+loss of Hamiltonian accuracy. Large negative energy errors remain divergences
+even when ordinary Metropolis acceptance is one.
+
+Two predeclared comparisons used the same second-trajectory start, momentum and
+realized duration `1.7628`, with half and quarter spacings. Both completed,
+although both remained divergent. Their maximum absolute energy errors were
+`60509.967` and `15087.236`, a factor `4.0107` apart. A separate bounded
+observation used the same short Hamiltonian time `0.0156` from each saved start:
+
+| Spacing | Maximum absolute energy error, first start | Maximum absolute energy error, second start |
+| --- | --- | --- |
+| `0.000325` | 23863.157 | 14999.534 |
+| `0.0001625` | 5956.920 | 3759.326 |
+| `0.00008125` | 1488.637 | 940.345 |
+
+The approximately fourfold reduction on halving spacing is the expected
+second-order behavior. At the two starts and coarse-trajectory steps 6 and 11,
+production evaluations also agree with independent direct-LU heat and adjoint
+solves: maximum `abs(delta U)=5.97388e-5` and relative total/likelihood-force
+discrepancy `2.33201e-11`. LU likelihood forces agree with centered directional
+finite differences at displacements `2e-4` and `1e-4` to relative error at most
+`4.84476e-9`. Forward/reverse relative position and momentum errors are below
+`1.75e-14` and `3.13e-11`. Reversibility alone would not validate a force; the
+independent force comparisons and spacing convergence together support inadequate
+Hamiltonian time resolution as the explanation of this observed escape.
+These measurements concern the observed fields and trajectories and do not
+establish stability for every prior-predictive realization.
+
+The read-only diagnostics preserve all protected input hashes and add no draws
+to a posterior. Their evidence is `task-13-replica10-trajectory-probe/replay.json`,
+`task-13-replica10-local-probe/local.json`, the adjacent compressed scalar
+histories, and `nov6-hmc-replica10-followup-report.md`. The fixed-point assembly
+observation is in `task-13-replica10-fixed-point-probe/probe.json`.
+
+### One declared candidate; qualification pending
+
+The prepared candidate uses initial spacing `0.0001625` and bounds
+`[1e-6,0.000325]` in an explicit `StudyConfig`. Public defaults remain
+`0.00065` and `[1e-6,0.0013]`. Target acceptance `0.8`, identity momentum,
+the original duration law, exact Gaussian rotation, ordinary Metropolis decision
+and step-size-only BlackJAX adaptation remain fixed. The candidate is a proposed
+pilot setting; even its short-time errors above can exceed the divergence
+threshold at dispersed starts. Actual settled-warmup and retained-trajectory
+criteria determine qualification.
+
+The next declared checks are separate full three-mesh pilots on the preserved
+replica-010 observations and the original analytic reference observations, using
+the committed source and new output directories. The candidate configuration
+will be `runs/hmc_resolution_candidate.json`; the planned commands are:
+
+```bash
+python scripts/run_hmc_study.py pilot --config runs/hmc_resolution_candidate.json --output runs/hmc-pilot-eps1625-replica010 --data runs/hmc-sbc-shared-target/replicate-010/generated.npz
+python scripts/run_hmc_study.py pilot --config runs/hmc_resolution_candidate.json --output runs/hmc-pilot-eps1625-analytic
+```
+
+Both new pilots are held pending resolution of the numerical-identity mismatch
+below; neither has been launched or qualified at this report update. Each must compare
+the original mesh-16 spreads `0.1,0.3,1.0`, with four chains, 256 warmup and 256
+retained iterations, and select the largest spread passing the unchanged rules.
+Every failed spread remains visible. Force tolerances must be requalified on
+each mesh and actual data set. Any disagreement between the two spread choices
+requires an explicit resolution before fixing campaign-wide initialization.
+There is no declared fallback candidate. Actual solve counts, timing, acceptance,
+energy errors and ESS must be measured; nominal fourfold integration work at
+these smaller initial/cap settings is not a prediction of ESS per unit time.
+The unchanged public defaults can be reconsidered only after measured pilots.
+
+The stopped campaign retains its original numerical identity, truths, data,
+chains and failed/interrupted outcomes. Changed source or controls require new
+numerical identities and outputs. No old chain is migrated, no difficult truth
+is replaced, and these diagnostic observations cannot complete calibration.
+
+## Reviewed corrections and current verification, 2026-11-06
+
+Broader validation had exposed a separate library-identity false rejection:
+a captured NumPy library appeared under two sibling environment paths, with
+the same device, inode, size and SHA256. Both names were hard links to one file;
+all 188 library files recorded by the stopped campaign were unchanged.
+The correction committed at `42b9b71` accepts an alternative sibling-installation
+name only when the same relative path under the active interpreter's installation
+identifies the same file and both byte hashes agree. Genuinely distinct files,
+changed bytes and ambiguous library names remain rejected. The new identity
+records schema 2 and its explicit path policy; source/build changes still prevent
+appending to an old calculation. Both independent scoped reviews approved this
+correction.
+
+Thirty fresh identity observations in each numerical installation completed
+with stable identities. Neither repeat actually encountered an alternative name;
+this is measured repeatability evidence only. Separate regression checks use
+real temporary hard links and files to exercise alias acceptance and strict
+rejection of distinct or altered files. The final focused qualified-installation
+checks passed **55 tests and 15 subtests in 571.88 s**; the original installation
+passed **25 tests and 15 subtests in 62.16 s**, with no failures, errors or skips
+in their XML. The evidence is `task-13-native-fix3-{qualified,original}.{log,xml}`,
+`task-13-native-corrected-{qualified,original}-01/complete.json`,
+`task-13-native-fix3-report.md`, and
+`task-13-native-fix3-{spec,standards}-review.md`. These checks do not qualify the new spacing candidate.
+
+The smooth/sharp study machinery committed at `cd998f6` also passed both scoped
+reviews. It preserves the previous complete trajectory while preparing an
+extension, protects saved outcomes while a calculation is active, and reduces
+failed trajectories to the five physical scalar histories without retaining
+all full conductivity fields in memory. The reviewed combined focused checks
+passed **55 tests in 61.005 s**, with no failures, errors or skips. Evidence is
+`task-14-fix2-native.{log,xml}` and
+`nov6-hmc-task14-fix2-{spec,standards}-review.md`.
+
+The complete combined-source checks have now finished:
+
+| Numerical installation | Complete-suite result | Elapsed seconds |
+| --- | --- | --- |
+| Qualified | 582 passed, 19 subtests passed, **1 failed** | 1507.36 |
+| Original | 412 passed, 19 subtests passed, 26 optional skips | 622.12 |
+
+The qualified failure is
+`test_changed_identity_rejected_before_target_extension[source_hash]`: its
+initial sample is rejected because two numerical identities differ, before the
+intended source-change check. The saved `problem.json` contains 187 selected
+libraries, whereas the independently recorded SQLite environment contains 188.
+The sole addition is `libslepc.3.25.1.dylib` and its Conda ownership record;
+all other environment fields and common library byte hashes are identical.
+Recomputing both numerical identities reproduces the saved and failing
+identities exactly. The physical problem identity is unchanged and no initial
+trajectory was committed. This isolates the recorded discrepancy, but the cause
+of SLEPc's intermittent inclusion remains unmeasured.
+
+Three isolated executions of the failing test and 100 repeated identity
+observations were stable. They have not reproduced or resolved the full-suite
+failure. The complete qualified suite therefore has not passed, and both new
+pilots remain held pending resolution. The full-suite logs and XML are
+`nov6-hmc-consolidated-{qualified,original}.{log,xml}`. A strict documentation-only
+Sphinx build passed (`nov6-hmc-consolidated-docs.log`); that check precedes this
+report update.
+
+Tasks 13 and 14 remain scientifically incomplete. Task 13 still requires the
+new matching pilots, a qualified fixed-100 calibration and scientific evidence
+review. Task 14 still requires refined smooth/sharp truth observations, all six
+baseline and eight prior-sensitivity posterior outcomes, and inspection of the
+physical figures and notebook. Passing focused checks or reviewing study
+machinery does not supply those physical results.
 
 ## Numerical pilot
 
@@ -413,10 +648,10 @@ calibration. Small replicate counts exercise mechanics only.
 
 | Question | Current status |
 | --- | --- |
-| Numerical correctness of fixed discrete posterior evaluations | Three-mesh pilot complete at `40f1324`; new matching pilot pending for the combined revision |
-| Sampling convergence | Actual production diagnostics pending |
-| Mesh approximation to the physical solution | Not assessed here; subsequent finer-truth studies |
-| Sharp-truth prior adequacy | Not assessed here; subsequent modelling studies |
+| Numerical correctness of fixed discrete posterior evaluations | Three-mesh pilot complete at `7196c0a`; corrected source and candidate spacing await matching pilots |
+| Sampling convergence | Ten calibration posteriors qualified, one warmup failed, two interrupted; study incomplete |
+| Mesh approximation to the physical solution | Reviewed study machinery exists; refined truths and physical outcomes remain pending |
+| Sharp-truth prior adequacy | Baseline and prior-sensitivity outcomes remain pending |
 
 The required 100-replication calibration remains incomplete. This report will
 be updated with actual source/environment records, commands, figures,
