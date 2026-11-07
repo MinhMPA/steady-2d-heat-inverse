@@ -8,11 +8,15 @@ calibration execution completed at source `7196c0a` on all three meshes. The 100
 heat calibration experiments remain **incomplete**. The campaign is preserved
 after ten qualified posteriors, one failed warmup and two cooperative interruptions.
 Fixed-start observations support inadequate Hamiltonian time resolution as the
-explanation of the failed warmup. A smaller-spacing candidate is prepared; its
-new pilots are held pending resolution of a remaining numerical-identity
-mismatch, and the full calibration remains incomplete. The reviewed library-identity
-correction and smooth/sharp study machinery are committed at `42b9b71` and
-`cd998f6`, respectively. Their checks and remaining limits are recorded below.
+explanation of the failed warmup. Both declared smaller-spacing pilots are
+running from source `4853edc`; neither is complete or qualified. That source
+includes a reviewed correction that preserves the numerical experiment through
+figure production and rejects inconsistent numerical-build evidence. Its exact
+same- and fresh-interpreter continuation checks and both complete test suites
+passed. The historical intermittent SLEPc omission remains unexplained, and
+the full calibration remains incomplete. The earlier library-identity correction
+and smooth/sharp study machinery are committed at `42b9b71` and `cd998f6`,
+respectively. Their evidence and the current qualification limits are below.
 
 ## The posterior being tested
 
@@ -450,9 +454,9 @@ to a posterior. Their evidence is `task-13-replica10-trajectory-probe/replay.jso
 histories, and `nov6-hmc-replica10-followup-report.md`. The fixed-point assembly
 observation is in `task-13-replica10-fixed-point-probe/probe.json`.
 
-### One declared candidate; qualification pending
+### One declared candidate; pilots running
 
-The prepared candidate uses initial spacing `0.0001625` and bounds
+The declared candidate uses initial spacing `0.0001625` and bounds
 `[1e-6,0.000325]` in an explicit `StudyConfig`. Public defaults remain
 `0.00065` and `[1e-6,0.0013]`. Target acceptance `0.8`, identity momentum,
 the original duration law, exact Gaussian rotation, ordinary Metropolis decision
@@ -461,20 +465,25 @@ pilot setting; even its short-time errors above can exceed the divergence
 threshold at dispersed starts. Actual settled-warmup and retained-trajectory
 criteria determine qualification.
 
-The next declared checks are separate full three-mesh pilots on the preserved
-replica-010 observations and the original analytic reference observations, using
-the committed source and new output directories. The candidate configuration
-will be `runs/hmc_resolution_candidate.json`; the planned commands are:
+On 2026-11-07, both declared full three-mesh pilots were launched from source
+`4853edc`, on the preserved replica-010 observations and the original analytic
+reference observations. Both use `runs/hmc_resolution_candidate.json` and new
+output directories. Their commands are:
 
 ```bash
 python scripts/run_hmc_study.py pilot --config runs/hmc_resolution_candidate.json --output runs/hmc-pilot-eps1625-replica010 --data runs/hmc-sbc-shared-target/replicate-010/generated.npz
 python scripts/run_hmc_study.py pilot --config runs/hmc_resolution_candidate.json --output runs/hmc-pilot-eps1625-analytic
 ```
 
-Both new pilots are held pending resolution of the numerical-identity mismatch
-below; neither has been launched or qualified at this report update. Each must compare
-the original mesh-16 spreads `0.1,0.3,1.0`, with four chains, 256 warmup and 256
-retained iterations, and select the largest spread passing the unchanged rules.
+Both pilots are running; neither is complete or qualified at this report update.
+The replica-010 pilot has finished its initial mesh-16, eleven-state,
+three-tolerance comparisons and entered spread-0.1 warmup. The retained-state
+force checks remain required. Their logs are
+`task-13-resolution-4853edc-{replica010,analytic}.log` under the evidence root
+above. The configuration and replica-010 observation hashes remain unchanged.
+Each pilot must compare the original mesh-16 spreads `0.1,0.3,1.0`, with four
+chains, 256 warmup and 256 retained iterations, and select the largest spread
+passing the unchanged rules.
 Every failed spread remains visible. Force tolerances must be requalified on
 each mesh and actual data set. Any disagreement between the two spread choices
 requires an explicit resolution before fixing campaign-wide initialization.
@@ -488,7 +497,7 @@ chains and failed/interrupted outcomes. Changed source or controls require new
 numerical identities and outputs. No old chain is migrated, no difficult truth
 is replaced, and these diagnostic observations cannot complete calibration.
 
-## Reviewed corrections and current verification, 2026-11-06
+## Reviewed corrections and current verification, 2026-11-07
 
 Broader validation had exposed a separate library-identity false rejection:
 a captured NumPy library appeared under two sibling environment paths, with
@@ -542,17 +551,74 @@ identities exactly. The physical problem identity is unchanged and no initial
 trajectory was committed. This isolates the recorded discrepancy, but the cause
 of SLEPc's intermittent inclusion remains unmeasured.
 
-Three isolated executions of the failing test and 100 repeated identity
-observations were stable. They have not reproduced or resolved the full-suite
-failure. The complete qualified suite therefore has not passed, and both new
-pilots remain held pending resolution. The full-suite logs and XML are
+The recorded identity evidence contains 484 stable observations, including the
+captures from the three isolated executions of the failing test. They have
+not reproduced or explained the historical SLEPc omission. That complete
+qualified suite did not pass; the later correction and its separate qualification
+are described below. The full-suite logs and XML are
 `nov6-hmc-consolidated-{qualified,original}.{log,xml}`. A strict documentation-only
 Sphinx build passed (`nov6-hmc-consolidated-docs.log`); that check precedes this
 report update.
 
-Tasks 13 and 14 remain scientifically incomplete. Task 13 still requires the
-new matching pilots, a qualified fixed-100 calibration and scientific evidence
-review. Task 14 still requires refined smooth/sharp truth observations, all six
+### Figure production and a fixed numerical experiment
+
+A public fixed-field calculation followed by notebook-style PNG production
+left conductivity, temperature, sensor predictions, potential, likelihood and
+both total and likelihood forces exactly unchanged. The old comparison still
+rejected the subsequent calculation because distinct SciPy/Matplotlib extensions
+and a Pillow-private helper shared library basenames. The corrected comparison
+uses observed package origins, unique file ownership, actual paths and byte
+hashes to distinguish these components. The fresh numerical reference remains
+fixed independently of figure production or the parent's import history.
+Additional numerical components must belong to that same observed installation;
+foreign numerical builds, changed core libraries and unresolved origins reject
+continuation. This bound concerns the measured installation and recorded loader
+controls; it does not establish every possible dynamic-loader behavior.
+
+Separately controlled comparisons reproduced a missing SLEPc classification and
+creation of a calculation with disagreeing declared and observed numerical
+evidence. The candidate includes SLEPc in the strict comparison and checks both
+records before declaring creation complete. Failed or interrupted creation keeps
+the declared and observed evidence distinct and cannot be reopened as a complete
+calculation. These corrections do not identify the cause of the historical
+187-to-188-library omission. The final candidate also reduces repeated inspection
+bookkeeping while renewing the installation evidence at every observation;
+the conductivity posterior, force and trajectory rules remain unchanged.
+
+The final candidate passed all 13 steps of the public calculation, PNG and
+continuation experiment. Intentionally interrupted small heat calculations resumed
+after plotting in the same interpreter and after load and plotting in a fresh
+interpreter. Both matched the uninterrupted calculation exactly in all saved
+warmup and retained records, initial/final checkpoints, identities and
+controls, excluding only measured trajectory wall time. All fixed-field physical
+comparisons and caller-field preservation were exact. These short calculations
+test reproducibility and continuation; they supply no new convergence, mesh
+accuracy or calibration evidence. Both scoped independent reviews approved the
+bounded correction and the final inspection-only reduction.
+
+| Numerical source | Installation | Complete-suite result | Elapsed seconds |
+| --- | --- | --- | --- |
+| Earlier candidate (round 4) | Qualified | 613 passed, 32 subtests, zero skips | 4160.85 |
+| Final source `4853edc` (round 5) | Original | 443 passed, 32 subtests, 26 expected optional skips | 1109.43 |
+| Final source `4853edc` (round 5) | Qualified | 614 passed, 32 subtests, zero skips | 2551.45 |
+
+The final qualified and original XML records contain 646 and 501 cases,
+respectively, with zero failures or errors. Both the earlier and final qualified
+runs emitted three existing Gaussian-test warnings about `record_property` and
+the xunit2 JUnit report format. The earlier result applies to its exact source.
+The final source's strict documentation build passed before this prose update.
+The exact reviewed correction was committed at
+`4853edcfebe6d22d5f2f64acb2d87c1e8989f696` on 2026-11-06. Candidate evidence,
+including earlier results, scoped reviews and the final public experiment, is in
+`.superpowers/sdd/2026-10-26-full-field-blackjax-hmc/nov6-provenance-fix5-candidate/`.
+Final complete-suite, documentation and application evidence is in
+`.superpowers/sdd/2026-10-26-full-field-blackjax-hmc/nov6-provenance-fix5-qualified/`.
+The two running three-mesh smaller-spacing pilots use this frozen numerical
+source. The public default controls remain unchanged.
+
+Tasks 13 and 14 remain scientifically incomplete. Task 13 still requires
+completion of the matching pilots, a qualified fixed-100 calibration and
+scientific evidence review. Task 14 still requires refined smooth/sharp truth observations, all six
 baseline and eight prior-sensitivity posterior outcomes, and inspection of the
 physical figures and notebook. Passing focused checks or reviewing study
 machinery does not supply those physical results.
@@ -648,7 +714,7 @@ calibration. Small replicate counts exercise mechanics only.
 
 | Question | Current status |
 | --- | --- |
-| Numerical correctness of fixed discrete posterior evaluations | Three-mesh pilot complete at `7196c0a`; corrected source and candidate spacing await matching pilots |
+| Numerical correctness of fixed discrete posterior evaluations | Three-mesh pilot complete at `7196c0a`; matching smaller-spacing pilots running at `4853edc`, not yet qualified |
 | Sampling convergence | Ten calibration posteriors qualified, one warmup failed, two interrupted; study incomplete |
 | Mesh approximation to the physical solution | Reviewed study machinery exists; refined truths and physical outcomes remain pending |
 | Sharp-truth prior adequacy | Baseline and prior-sensitivity outcomes remain pending |
