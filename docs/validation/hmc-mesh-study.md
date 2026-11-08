@@ -1,10 +1,12 @@
 # Conductivity posteriors across meshes and sharp interfaces
 
-**Status: study apparatus prepared; physical results pending.** No smooth/sharp
-fine-truth record, six baseline posterior calculations, or eight prior-sensitivity
-calculations is claimed here. Task 13 numerical qualification and its 100
-same-model calibration experiments remain separate requirements. Passing execution
-checks does not establish continuum accuracy or prior adequacy.
+**Status: smooth/sharp reference observations frozen; posterior studies pending.**
+Both reference records meet the declared sensor-refinement criterion. Both
+actual-data baseline pilots are running and remain unqualified. Prior-sensitivity
+pilots, all six baseline posterior calculations and eight prior-sensitivity
+calculations remain pending. Task 13's two smaller-spacing
+pilots are running, and its 100 same-model calibration experiments remain
+incomplete. These are separate scientific requirements.
 
 The heat source is 1 on the unit square, the bottom temperature is 300 K and
 other boundaries are insulated. The same 256 interior thermometers at
@@ -27,6 +29,52 @@ finer mesh, and refinement evidence. Every inference mesh and sensitivity case
 reads those same bytes. This experiment is separate from same-discrete-model
 simulation-based calibration.
 
+## Frozen reference observations, 2026-11-07
+
+Both truth commands below exited successfully at checkout revision
+`fcb7466782e3699e23720073819d606367aa0361`. Every numerical source remained
+unchanged from `4853edcfebe6d22d5f2f64acb2d87c1e8989f696`. Direct-LU heat
+solutions gave the following maximum change over the 256 fixed sensors:
+
+| Truth | Coarse mesh | Fine mesh | `max(abs(T_fine-T_coarse))/sigma` |
+| --- | --- | --- | --- |
+| Smooth | 128 | 256 | 0.00838298677763305 |
+| Sharp | 128 | 256 | 0.34993962077578544 |
+| Sharp | 256 | 512 | 0.14809598923193334 |
+| Sharp | 512 | 1024 | 0.0774712140128031 |
+
+The smooth record therefore uses mesh 256 and the sharp record mesh 1024.
+The last comparison in each case is below `0.1*sigma`. This qualifies the
+reference at the sensors under the stated refinement rule; it supplies neither
+a rigorous continuum-error bound nor evidence of conductivity-jump recovery.
+The sharp conductivity remains a continuous Q1 nodal interpolant with transition
+cells. No posterior samples are produced by these truth calculations.
+
+Each accepted reference received exactly one Gaussian-noise realization, with
+seed 20261026 for smooth and 20261027 for sharp, at `sigma=0.001 K`.
+Independent checks confirmed finite arrays, the fixed sensor coordinates and
+ordering, and the exact seeded noise. The frozen outputs are
+`runs/hmc-truth-4853edc-smooth/` and `runs/hmc-truth-4853edc-sharp/`.
+The following SHA256 values identify the complete files, including each
+manifest's observed numerical environment and source hashes:
+
+| File in each output | Smooth SHA256 | Sharp SHA256 |
+| --- | --- | --- |
+| `observations.npz` | `7613edb728fd8172df56e687e27c8f05fad9496bc46a4c78ff292afd7810d8b6` | `469a4b597f0be81deb2a77c38125437db8d80125abaf1825ae07619fdba42c72` |
+| `observations.json` | `f5722434857b3dd894f7618b65aabf08fa9065736347a7de6ba96b779e096d43` | `88db32d95ac587f4bb5ef1b3546489c2f170d9dc90626c2b0ece631ff2b4e64c` |
+| `refinement.json` | `02fab60166f95400c7c00055d5e94860a7f69f8949062762b9ee99ee10cefdbd` | `d39dc945744b1204582440e8ff48e595977aab86ea2d86ea139ef91e972bc45e` |
+| `manifest.json` | `971584527604d513c0bdfcc2f4c570cf2055aa766b50229ef3231a2d247e096d` | `a6c5762d942ed40f759fc14fd723722a52e10226645be45c6316b4dd02ebff32` |
+
+Both commands used the qualified interpreter
+`/Users/nguyenmn/miniconda3/envs/s2dhi-hmc/bin/python` and
+`runs/hmc_resolution_candidate.json`, SHA256
+`282e7f7d776dd317c9b6d1bf50778337549a6247783a4386d08d3e8d5e7dc36f`.
+The invocation records, `truth-{smooth,sharp}.log`, execution outcomes and
+`truth-verification.json` are preserved under
+`.superpowers/sdd/2026-10-26-full-field-blackjax-hmc/nov7-progress-and-truths/`.
+Both logs include three known notices about unused iterative-solver options
+in these direct-LU solves; neither command reported a failed heat solve.
+
 ## Reproducible calculation sequence
 
 Run these commands only after freezing the reviewed source and numerical
@@ -37,28 +85,48 @@ meshes, including for a sensitivity configuration subsequently sampled at 16.
 
 ```bash
 python scripts/run_hmc_study.py truth --case smooth \
-  --config validation/hmc_reference.json --output runs/truth-smooth
+  --config runs/hmc_resolution_candidate.json --output runs/hmc-truth-4853edc-smooth
 python scripts/run_hmc_study.py truth --case sharp \
-  --config validation/hmc_reference.json --output runs/truth-sharp
+  --config runs/hmc_resolution_candidate.json --output runs/hmc-truth-4853edc-sharp
 ```
 
-Prepare explicit copies of the reference JSON with `pilot_output` set to the
-corresponding data-specific pilot directory. For example,
-`validation/smooth-baseline.json` names `runs/pilot-smooth-baseline`. These files
-must be saved before launching their pilot, then passed unchanged to the mesh
-calculations.
+Both actual-data baseline pilots were launched at `fcb7466` on 2026-11-07 and
+have saved manifests. Their configurations differ from
+`runs/hmc_resolution_candidate.json` only in `pilot_output`, naming the
+corresponding data-specific pilot directory. The smooth configuration
+`runs/hmc-eps1625-smooth-baseline.json` has SHA256
+`8fe52f4ee6c94be47d9120d8de8549a17535cee1abfbe911f509a94279cee52d`;
+`runs/hmc-eps1625-sharp-baseline.json` has SHA256
+`ea4792fedd9963c14fbbad0ed8ab5bd1fa3175475907828a7bbedcf60ed1711e`.
+The observation bytes are unchanged. The exact invocations and
+`pilot-{smooth,sharp}-baseline.log` are recorded with
+`truth-pilot-execution.json` under the durable evidence directory above.
 
 ```bash
 python scripts/run_hmc_study.py pilot \
-  --config validation/smooth-baseline.json \
-  --data runs/truth-smooth/observations.npz --output runs/pilot-smooth-baseline
-python scripts/run_hmc_study.py mesh --nmesh 16 \
-  --config validation/smooth-baseline.json \
-  --data runs/truth-smooth/observations.npz --output runs/smooth-n16-baseline
+  --config runs/hmc-eps1625-smooth-baseline.json \
+  --output runs/hmc-pilot-eps1625-smooth-baseline \
+  --data runs/hmc-truth-4853edc-smooth/observations.npz
+python scripts/run_hmc_study.py pilot \
+  --config runs/hmc-eps1625-sharp-baseline.json \
+  --output runs/hmc-pilot-eps1625-sharp-baseline \
+  --data runs/hmc-truth-4853edc-sharp/observations.npz
 ```
 
-Repeat the mesh command at 32 and 64 with separate output directories, and repeat
-the entire data-specific sequence for sharp truth. The baseline physical prior
+Neither baseline pilot is complete or qualified. Their actual-data force checks,
+settled warmup and retained-trajectory criteria remain required. No posterior
+mesh-study outcome is claimed. After a matching pilot qualifies, its unchanged
+configuration is used for the corresponding mesh calculations, for example:
+
+```bash
+python scripts/run_hmc_study.py mesh --nmesh 16 \
+  --config runs/hmc-eps1625-smooth-baseline.json \
+  --data runs/hmc-truth-4853edc-smooth/observations.npz --output runs/smooth-n16-baseline
+```
+
+Repeat the mesh command at 32 and 64 with separate output directories, and use
+the corresponding sharp configuration and frozen observations for sharp posterior
+calculations. The baseline physical prior
 is `mu=log(2), kappa=2, tau=1, h_ref=1`, with natural Neumann boundaries. It is
 identical across meshes.
 
@@ -142,8 +210,8 @@ jump through transition cells. An exactly discontinuous material model may
 therefore require a different field representation as well as a different prior.
 Strong chain diagnostics alone cannot resolve this modelling limitation.
 
-Before Task 14 can be called complete, save and inspect both refined truth
-records, all fourteen outcomes and their data-specific numerical qualifications;
+Before Task 14 can be called complete, save and inspect all fourteen outcomes
+and their data-specific numerical qualifications;
 resolve or explicitly retain every failed scientific criterion; inspect the
 notebook/report figures; pass the ordinary regression checks and warning-free
 documentation build; and complete the planned independent review.
@@ -155,8 +223,8 @@ unresolved, request a larger retained total per chain explicitly:
 
 ```bash
 python scripts/run_hmc_study.py mesh --nmesh 16 \
-  --config validation/smooth-baseline.json \
-  --data runs/truth-smooth/observations.npz --output runs/smooth-n16-baseline \
+  --config runs/hmc-eps1625-smooth-baseline.json \
+  --data runs/hmc-truth-4853edc-smooth/observations.npz --output runs/smooth-n16-baseline \
   --total-draws 8000
 ```
 

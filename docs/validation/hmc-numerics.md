@@ -618,9 +618,13 @@ source. The public default controls remain unchanged.
 
 Tasks 13 and 14 remain scientifically incomplete. Task 13 still requires
 completion of the matching pilots, a qualified fixed-100 calibration and
-scientific evidence review. Task 14 still requires refined smooth/sharp truth observations, all six
-baseline and eight prior-sensitivity posterior outcomes, and inspection of the
-physical figures and notebook. Passing focused checks or reviewing study
+scientific evidence review. Task 14's smooth/sharp reference observations now
+meet the declared sensor-refinement criterion; their frozen records and limits
+are documented in [the mesh study](hmc-mesh-study.md#frozen-reference-observations-2026-11-07).
+Task 14's two actual-data baseline pilots are running and remain unqualified.
+Prior-sensitivity pilots, all six baseline and eight prior-sensitivity posterior
+outcomes, and inspection of the physical figures and notebook remain required.
+Passing focused checks or reviewing study
 machinery does not supply those physical results.
 
 ## Numerical pilot
@@ -716,7 +720,7 @@ calibration. Small replicate counts exercise mechanics only.
 | --- | --- |
 | Numerical correctness of fixed discrete posterior evaluations | Three-mesh pilot complete at `7196c0a`; matching smaller-spacing pilots running at `4853edc`, not yet qualified |
 | Sampling convergence | Ten calibration posteriors qualified, one warmup failed, two interrupted; study incomplete |
-| Mesh approximation to the physical solution | Reviewed study machinery exists; refined truths and physical outcomes remain pending |
+| Mesh approximation to the physical solution | Smooth/sharp sensor-refined reference observations frozen; posterior mesh comparisons remain pending |
 | Sharp-truth prior adequacy | Baseline and prior-sensitivity outcomes remain pending |
 
 The required 100-replication calibration remains incomplete. This report will
