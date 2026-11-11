@@ -285,6 +285,82 @@ def test_changed_numerical_environment_rejects_append(tmp_path, monkeypatch):
         RunStore.open(path, writable=True)
 
 
+def test_saved_draw_inspection_needs_no_native_inspection(tmp_path, monkeypatch):
+    """Stored physical fields remain readable without an available MPI stack."""
+    import native_provenance
+
+    monkeypatch.setattr(native_provenance, "native_build_identity", lambda: {})
+    monkeypatch.setenv("FI_PROVIDER", "tcp")
+    path = tmp_path / "portable-inspection"
+    with RunStore.create(
+        path, problem=problem_record(), run_metadata=metadata()
+    ) as store:
+        store.initialize_chains([checkpoint()])
+        cp = checkpoint(done=1)
+        store.commit_trajectory(trajectory(cp, 0), cp)
+
+    def unavailable_native_inspection():
+        raise RuntimeError("Native numerical libraries are unavailable.")
+
+    monkeypatch.setattr(
+        native_provenance, "native_build_identity", unavailable_native_inspection
+    )
+    for control in ("FI_PROVIDER", "FI_TCP_IFACE", "FI_SOCKETS_IFACE"):
+        monkeypatch.delenv(control, raising=False)
+    with RunStore.open(path) as reader:
+        assert reader.checkpoint(0).draws_done == 1
+        assert np.array_equal(next(reader.records(0)).h, [1.0, 2.0, 3.0])
+
+
+@pytest.mark.parametrize(
+    "control,original,changed",
+    [
+        ("FI_PROVIDER", None, "tcp"),
+        ("FI_PROVIDER", "sockets", "tcp"),
+        ("FI_PROVIDER", "tcp", None),
+        ("FI_TCP_IFACE", None, "en12"),
+        ("FI_TCP_IFACE", "en12", "utun0"),
+        ("FI_TCP_IFACE", "en12", None),
+        ("FI_SOCKETS_IFACE", None, "en12"),
+        ("FI_SOCKETS_IFACE", "en12", "utun0"),
+        ("FI_SOCKETS_IFACE", "en12", None),
+    ],
+)
+def test_changed_mpi_transport_rejects_append_but_preserves_saved_draws(
+    tmp_path, monkeypatch, control, original, changed
+):
+    """A resumed calculation must retain its declared MPI transport controls."""
+    import native_provenance
+
+    # Native-library inspection launches an MPI process; this storage check uses
+    # a fixed external inspection result and keeps all archive operations real.
+    monkeypatch.setattr(native_provenance, "native_build_identity", lambda: {})
+    if original is None:
+        monkeypatch.delenv(control, raising=False)
+    else:
+        monkeypatch.setenv(control, original)
+    path = tmp_path / "transport-change"
+    with RunStore.create(
+        path, problem=problem_record(), run_metadata=metadata()
+    ) as store:
+        store.initialize_chains([checkpoint()])
+    # Identical declarations permit an actual continuation and saved draw.
+    with RunStore.open(path, writable=True) as store:
+        cp = checkpoint(done=1)
+        store.commit_trajectory(trajectory(cp, 0), cp)
+
+    if changed is None:
+        monkeypatch.delenv(control)
+    else:
+        monkeypatch.setenv(control, changed)
+    with RunStore.open(path) as reader:
+        assert reader.checkpoint(0).draws_done == 1
+        assert [row.index for row in reader.records(0)] == [0]
+        assert np.array_equal(next(reader.records(0)).h, [1.0, 2.0, 3.0])
+    with pytest.raises(ValueError, match="numerical|environment"):
+        RunStore.open(path, writable=True)
+
+
 @pytest.mark.parametrize(
     "cell,nmesh",
     [("triangle", 3), ("triangle", 4), ("quadrilateral", 3), ("quadrilateral", 4)],

@@ -621,6 +621,121 @@ def test_failed_chain_fields_are_projected_before_reading_next_draw(
     )
 
 
+@pytest.mark.parametrize("counts", [(256, 256), (3, 2), (0, 0)])
+def test_chain_report_releases_fields_between_draws_phases_and_chains(
+    tmp_path, monkeypatch, counts
+):
+    """Scalar chain evidence must not retain the full conductivity histories."""
+    from contextlib import nullcontext
+    import weakref
+
+    from posterior_store import RunStore, TrajectoryRecord
+
+    alive = []
+
+    def fields_released():
+        assert not any(
+            ref() is not None for ref in alive
+        ), "Chain evidence retained full fields while reading the next draw."
+
+    def records(chain, *, phase="sample"):
+        count = counts[0 if phase == "warmup" else 1]
+        for index in range(count):
+            fields_released()
+            row = TrajectoryRecord(
+                chain=chain,
+                phase=phase,
+                index=index,
+                inferred_coordinates={"z": np.zeros(3)},
+                h=np.ones(3),
+                sensor_temperature=np.full(2, 300.0),
+                statistics={
+                    "index": index,
+                    "phase": phase,
+                    "chain": chain,
+                    "divergent": (
+                        index == 191 + chain
+                        if phase == "warmup"
+                        else chain == 1 and index == 0
+                    ),
+                    "step_size": (
+                        0.012 + chain * 0.001
+                        if phase == "warmup" and index == 0
+                        else 0.04 if phase == "warmup" else 0.02
+                    ),
+                    "acceptance_probability": 0.8 if chain == 0 else 0.6,
+                },
+            )
+            alive.extend(
+                weakref.ref(value)
+                for value in (
+                    row,
+                    row.h,
+                    row.inferred_coordinates["z"],
+                    row.sensor_temperature,
+                )
+            )
+            yield row
+            del row
+        fields_released()
+
+    failures = [{"exception": "KeyboardInterrupt", "chain": 1}]
+    streams = [{"initialization": [1, 2]}, {"initialization": [3, 4]}]
+    store = SimpleNamespace(
+        metadata={"chains": 2, "seed": 817, "random_streams": streams},
+        problem_record=SimpleNamespace(
+            arrays={
+                "sensor_values": np.array([300.0, 302.0]),
+                "sensor_sigma": np.array([2.0, 1.0]),
+            }
+        ),
+        initial_checkpoint=lambda chain: SimpleNamespace(
+            physical_state={"sensor_temperature": np.array([302.0 + 2 * chain, 304.0])}
+        ),
+        checkpoint=lambda chain: SimpleNamespace(
+            step_size=0.03 + 0.01 * chain,
+            counters={"heat": 100 + chain, "adjoint": 80 + chain},
+        ),
+        records=records,
+        failures=lambda: iter(failures),
+    )
+    monkeypatch.setattr(RunStore, "open", lambda path: nullcontext(store))
+
+    result = mesh.hv._chain_evidence(tmp_path / "posterior", lower_bound=0.01)
+
+    fields_released()
+    assert result["seed"] == 817
+    assert result["random_streams"] == streams
+    assert result["failures"] == failures
+    assert result["passes_spread_criteria"] is False
+    assert [item["initial_phi"] for item in result["chains"]] == [2.5, 4.0]
+    assert [item["chain"] for item in result["chains"]] == [0, 1]
+    for chain, item in enumerate(result["chains"]):
+        assert item["warmup_count"] == counts[0]
+        assert item["retained_count"] == counts[1]
+        assert item["final_warmup_divergences"] == (
+            1 if chain == 1 and counts[0] == 256 else 0
+        )
+        assert item["retained_divergences"] == (1 if chain == 1 and counts[1] else 0)
+        assert item["mean_retained_acceptance"] == (
+            pytest.approx(0.8 if chain == 0 else 0.6) if counts[1] else None
+        )
+        assert item["minimum_step_size"] == (
+            0.012 + 0.001 * chain if counts[0] else 0.01
+        )
+        assert item["final_step_size"] == 0.03 + 0.01 * chain
+        assert item["solve_counts"] == {"heat": 100 + chain, "adjoint": 80 + chain}
+        assert item["passes_spread_criteria"] is (chain == 0 and counts == (256, 256))
+        for phase, count in zip(("warmup", "retained"), counts):
+            statistics = item["statistics"][phase]
+            assert [s["index"] for s in statistics] == list(range(count))
+            assert all(s["chain"] == chain for s in statistics)
+            assert all(
+                s["phase"] == ("warmup" if phase == "warmup" else "sample")
+                for s in statistics
+            )
+
+
 def test_unverified_archive_copy_does_not_publish_and_retry_keeps_checked_evidence(
     tmp_path, monkeypatch
 ):

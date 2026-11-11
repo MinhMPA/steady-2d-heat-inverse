@@ -56,8 +56,9 @@ def numerical_environment():
     -------
     dict
         Distribution and SQLite versions, source hashes, architecture, declared
-        precision/backend settings and thread controls, independent of import
-        order. Actual sampling-environment qualification remains separate.
+        precision/backend settings, thread and MPI transport controls,
+        independent of import order. Actual sampling-environment qualification
+        remains separate.
     """
     import native_provenance
 
@@ -104,6 +105,9 @@ def numerical_environment():
                 "OPENBLAS_NUM_THREADS",
                 "MKL_NUM_THREADS",
                 "VECLIB_MAXIMUM_THREADS",
+                "FI_PROVIDER",
+                "FI_TCP_IFACE",
+                "FI_SOCKETS_IFACE",
                 "CC",
                 "CXX",
                 "CFLAGS",

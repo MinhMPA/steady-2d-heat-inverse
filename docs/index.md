@@ -29,6 +29,7 @@ testing
 hmc
 validation/hmc-numerics
 validation/hmc-mesh-study
+validation/hmc-mpi-shutdown
 api/index
 ```
 

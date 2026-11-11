@@ -102,7 +102,10 @@ FEM libraries. Sampling pins are BlackJAX 1.7.1, JAX/JAXlib 0.11.2; diagnostics 
 These optional dependencies are lazy: legacy imports and reconstruction work
 without sampling, diagnostics or plotting installed.
 
-Before starting Python or a notebook kernel:
+Before starting Python or a notebook kernel, configure precision and threads as
+below. For the dedicated macOS ARM64 MPICH environment, first set
+`export FI_PROVIDER=tcp` in the same shell, following the
+[transport and shutdown instructions](#macos-mpich-transport-and-shutdown).
 
 ```bash
 export JAX_ENABLE_X64=true JAX_PLATFORMS=cpu
@@ -114,6 +117,58 @@ python -c "from hmc_blackjax import require_sampling_environment; print(require_
 
 Use one MPI rank per heat solve; do not launch the posterior notebook with
 `mpirun -n 4`. Four independent chains are requested with `chains=4`.
+
+### macOS MPICH transport and shutdown
+
+For the dedicated macOS ARM64 posterior environment with MPICH 5.0.1
+(`ch4:ofi`, libfabric 2.6.0), select its TCP transport **before starting Python,
+Jupyter, or any finite-element calculation**:
+
+```bash
+conda activate s2dhi-hmc
+export FI_PROVIDER=tcp
+export S2DHI_HMC_QUALIFICATION=1
+PYTHONPATH="$PWD/src" python -m pytest -q tests/test_hmc_mpi_shutdown.py
+```
+
+To retain the provider choice for future activations of this environment:
+
+```bash
+conda env config vars set -n s2dhi-hmc FI_PROVIDER=tcp
+```
+
+Reactivate the environment before starting a new Python or Jupyter process.
+An already initialized MPI process cannot adopt this startup change.
+
+The optional check requires three independent single-rank processes to use
+normal mpi4py initialization with `THREAD_MULTIPLE`, pass a barrier, return from
+explicit `MPI.Finalize()`, print a subsequent marker and exit
+successfully. Each process has a 30-second limit. A saved posterior trajectory
+alone does not establish that its process shut down cleanly.
+
+The setting selects an existing libfabric provider; it is an explicit environment
+configuration, rather than a repair to MPICH or libfabric source. Local minimal
+MPI checks found stalled finalization with the default sockets transport on
+several VPN interfaces, with successful exits using TCP on the paired interfaces.
+This supports the transport choice without reproducing the identical historical
+shutdown error. The related upstream report is
+[MPICH issue 7760](https://github.com/pmodels/mpich/issues/7760).
+The [measured qualification record](validation/hmc-mpi-shutdown.md) gives the
+paired experiments, physical comparisons and limits.
+
+Set this only for the dedicated posterior environment. Other MPI installations,
+including Linux, need their own qualification. Start with the provider's normal
+interface choice: forcing `lo0` failed in the local checks. Declare
+`FI_TCP_IFACE` or `FI_SOCKETS_IFACE` only after qualifying that particular choice.
+Fresh child processes inherit these controls. The library leaves them under the
+caller's control and uses normal MPI finalization, with errors visible.
+
+The saved numerical record includes `FI_PROVIDER`, `FI_TCP_IFACE` and
+`FI_SOCKETS_IFACE`, including whether each is unset. Changing any declaration
+prevents continuation in the same archive. Existing archives remain readable
+without MPI or the original environment; a different numerical identity requires
+a new calculation directory. Keep the original reconstruction environment and
+its MPI installation intact.
 
 ### Measured macOS compiler setup
 

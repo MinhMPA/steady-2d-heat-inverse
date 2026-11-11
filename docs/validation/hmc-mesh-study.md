@@ -1,12 +1,15 @@
 # Conductivity posteriors across meshes and sharp interfaces
 
-**Status: smooth/sharp reference observations frozen; posterior studies pending.**
-Both reference records meet the declared sensor-refinement criterion. Both
-actual-data baseline pilots are running and remain unqualified. Prior-sensitivity
-pilots, all six baseline posterior calculations and eight prior-sensitivity
-calculations remain pending. Task 13's two smaller-spacing
-pilots are running, and its 100 same-model calibration experiments remain
-incomplete. These are separate scientific requirements.
+**Status, 11 November 2026: reference observations frozen; production studies
+pending.** Both reference records meet the declared sensor-refinement criterion.
+The smooth/sharp baseline pilots and Task 13's two smaller-spacing pilots wrote
+their numerical completion records before reporting MPI shutdown errors. The
+saved-chain audit found intact records; the exploratory posteriors do not
+establish production convergence. See the separate
+[shutdown qualification](hmc-mpi-shutdown.md). Prior-sensitivity pilots, all six
+baseline posterior calculations, eight prior-sensitivity calculations and the
+100 same-model calibration experiments remain incomplete. These are separate
+scientific requirements.
 
 The heat source is 1 on the unit square, the bottom temperature is 300 K and
 other boundaries are insulated. The same 256 interior thermometers at

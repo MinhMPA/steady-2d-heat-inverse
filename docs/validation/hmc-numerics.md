@@ -8,8 +8,12 @@ calibration execution completed at source `7196c0a` on all three meshes. The 100
 heat calibration experiments remain **incomplete**. The campaign is preserved
 after ten qualified posteriors, one failed warmup and two cooperative interruptions.
 Fixed-start observations support inadequate Hamiltonian time resolution as the
-explanation of the failed warmup. Both declared smaller-spacing pilots are
-running from source `4853edc`; neither is complete or qualified. That source
+explanation of the failed warmup. Both declared smaller-spacing pilots at source
+`4853edc` subsequently wrote numerical completion records before reporting MPI
+shutdown errors. Their saved results remain available for analysis; they do not
+complete the calibration campaign. The
+[11 November shutdown qualification](hmc-mpi-shutdown.md) records the measured
+transport correction and its limits. Source `4853edc`
 includes a reviewed correction that preserves the numerical experiment through
 figure production and rejects inconsistent numerical-build evidence. Its exact
 same- and fresh-interpreter continuation checks and both complete test suites

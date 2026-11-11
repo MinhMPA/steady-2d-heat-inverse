@@ -10,8 +10,9 @@ The executable example is
 Its default `nmesh=16`, four chains, 100 warmup iterations and 200 retained draws per
 chain are **illustrative and unqualified**. The data use `fine_nmesh=64`, 256 fixed
 interior thermometers and one seeded noise realization. The planned scientific
-report is `docs/validation/hmc-mesh-study.md`; it has no results yet. This path will
-become a report link when the scientific study is available.
+study is recorded in the [mesh and prior validation report](validation/hmc-mesh-study.md).
+Its reference observations and exploratory pilots are available; production
+calibration and prior-sensitivity calculations remain incomplete.
 
 ## Measurements and prior
 
@@ -70,6 +71,14 @@ sampling, private temperature predictions and summaries. Every heat solve uses o
 MPI rank, CPU float64 and fixed tolerances. A failed heat solve stops the run with
 its diagnostic. Nonfinite proposals repeat the last valid state and count as
 divergences. The legacy adaptive heat-solve tolerances are not used here.
+
+For the dedicated macOS ARM64 MPICH environment, set `FI_PROVIDER=tcp` before
+starting Python or Jupyter and run the bounded
+[MPI shutdown qualification](installation.md#macos-mpich-transport-and-shutdown).
+Child processes inherit the declared transport controls. These controls belong to
+the saved numerical identity: changing `FI_PROVIDER`, `FI_TCP_IFACE` or
+`FI_SOCKETS_IFACE` prevents append, while existing archives remain readable
+without MPI. Other MPI installations require their own qualification.
 
 A scalar, callable or `NodalField(values, coordinates)` can supply an initial
 conductivity. Nodal coordinates must match the inference mesh; there is no automatic

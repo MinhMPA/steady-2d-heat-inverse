@@ -706,9 +706,12 @@ def _chain_evidence(path, lower_bound):
         for chain in range(store.metadata["chains"]):
             initial = store.initial_checkpoint(chain)
             checkpoint = store.checkpoint(chain)
-            warmup = list(store.records(chain, phase="warmup"))
-            retained = list(store.records(chain))
-            statistics = [r.statistics for r in retained]
+            warmup, retained = [], []
+            for phase, statistics in (("warmup", warmup), ("sample", retained)):
+                for record in store.records(chain, phase=phase):
+                    statistics.append(record.statistics)
+                    # Reports need scalar evidence, not the full inferred fields.
+                    del record
             tail = warmup[-64:]
             residual = (
                 initial.physical_state["sensor_temperature"]
@@ -720,26 +723,22 @@ def _chain_evidence(path, lower_bound):
                 "initial_phi": initial_phi,
                 "warmup_count": len(warmup),
                 "retained_count": len(retained),
-                "final_warmup_divergences": sum(
-                    r.statistics["divergent"] for r in tail
-                ),
-                "retained_divergences": sum(
-                    r.statistics["divergent"] for r in retained
-                ),
+                "final_warmup_divergences": sum(s["divergent"] for s in tail),
+                "retained_divergences": sum(s["divergent"] for s in retained),
                 "mean_retained_acceptance": (
-                    float(np.mean([s["acceptance_probability"] for s in statistics]))
-                    if statistics
+                    float(np.mean([s["acceptance_probability"] for s in retained]))
+                    if retained
                     else None
                 ),
                 "minimum_step_size": min(
-                    [r.statistics["step_size"] for r in warmup + retained],
+                    [s["step_size"] for s in warmup + retained],
                     default=lower_bound,
                 ),
                 "final_step_size": checkpoint.step_size,
                 "solve_counts": checkpoint.counters,
                 "statistics": {
-                    "warmup": [r.statistics for r in warmup],
-                    "retained": statistics,
+                    "warmup": warmup,
+                    "retained": retained,
                 },
             }
             item["passes_spread_criteria"] = bool(
