@@ -1,5 +1,15 @@
 # MPI shutdown qualification, 11 November 2026
 
+**Status, 16 November 2026:** the measured transport correction and dated
+checks below concern numerical reproducibility and successful process exit.
+The [current scientific evidence](hmc-status.md) separately records qualified
+mesh-32 chains and an incomplete 8/100-replica calibration campaign. Effective
+local/user form-compiler options remain outside the continuation identity in
+the reviewed source; passing transport checks does not resolve that limitation.
+The historical test counts below retain their original scope.
+
+## Qualification measured on 11 November
+
 The dedicated macOS ARM64 posterior environment uses `FI_PROVIDER=tcp` before
 Python starts. This is a measured configuration for MPICH 5.0.1 (`ch4:ofi`),
 libfabric 2.6.0 and mpi4py 4.1.2. It preserves normal MPI finalization and leaves

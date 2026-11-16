@@ -1,5 +1,21 @@
 # Conductivity posterior numerical qualification
 
+**Status, 16 November 2026:** the saved mesh-32 demonstration has four qualified
+chains of 1,024 retained draws each. The current saved calibration campaign has
+8 qualified, 2 active and 90 not-started replicas out of 100 and remains
+incomplete; process liveness was not checked. These are separate experiments.
+The [dated evidence summary](hmc-status.md) distinguishes chain convergence,
+finite-solve accuracy, calibration, mesh refinement and prior sensitivity.
+
+The historical measurements below retain their original source revisions and
+failed attempts. Their earlier calibration counts are not the current campaign.
+The 16 November review also found a continuation limitation: effective local/user
+form-compiler settings are absent from numerical identity. Until corrected and
+verified, matching recorded identities alone cannot certify unchanged numerical
+settings; see [numerical reproducibility](hmc-status.md#numerical-reproducibility).
+
+## Historical numerical qualification
+
 The first formal mesh-16 force check failed before any trajectories were run.
 After the temperature-origin correction and independent review, the numerical
 pilot at source `40f1324` completed on meshes 16, 32 and 64. Its evidence is

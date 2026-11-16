@@ -1,5 +1,15 @@
 # Conductivity posteriors across meshes and sharp interfaces
 
+**Status, 16 November 2026: reference observations qualified; production mesh
+and prior studies incomplete.** The six baseline and eight prior-sensitivity
+outcomes below remain outstanding in the available evidence. The qualified
+four-chain mesh-32 slice demonstration used a generating mesh of 16; it does
+not complete this finer-truth study. The current saved same-model calibration
+record has 8/100 qualified replicas and remains incomplete. See the
+[dated scientific evidence summary](hmc-status.md) for the separate scopes.
+
+## Historical status, 11 November 2026
+
 **Status, 11 November 2026: reference observations frozen; production studies
 pending.** Both reference records meet the declared sensor-refinement criterion.
 The smooth/sharp baseline pilots and Task 13's two smaller-spacing pilots wrote
