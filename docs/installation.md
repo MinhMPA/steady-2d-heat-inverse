@@ -78,9 +78,10 @@ sphinx-build -W -b html docs docs/_build/html
 
 ## Separate CPU posterior environment
 
-Preserve the original reconstruction environment. Sampling is qualified for Python
-3.12+, eager CPU float64, with pinned JAX/BlackJAX and optional ArviZ Stats. Start
-from `environment.yml` in a separate environment, or clone the verified original
+Preserve the original reconstruction environment. The measured sampling
+qualification uses CPython 3.12, eager CPU float64 and one MPI rank, with BlackJAX 1.7.1, JAX/JAXlib 0.11.2
+and ArviZ Stats 1.3.3. The base project accepts Python 3.11, but that is not the
+qualified sampling environment. Start from `environment.yml` in a separate environment, or clone the verified original
 `s2dhi-011` environment as `s2dhi-hmc`. Resolve with `constraints/hmc-cpu-py312.txt` and inspect a dry-run report
 before installation:
 
@@ -99,6 +100,16 @@ DOLFINx 0.11.0 and h5py 3.16.0. If a fresh conda resolution differs, construct a
 compatible native conda environment or requalify it; do not use pip to replace its
 FEM libraries. Sampling pins are BlackJAX 1.7.1, JAX/JAXlib 0.11.2; diagnostics use
 `arviz-stats==1.3.3`. `[validation]` adds Matplotlib for portable physical figures.
+Install only the optional layers needed for the calculation:
+
+| Extra | Purpose | Native heat solve needed? |
+| --- | --- | --- |
+| `[sampling]` | BlackJAX/JAX trajectory machinery | Yes, for the physical posterior |
+| `[diagnostics]` | ArviZ Stats convergence and Monte Carlo errors | No, for saved histories |
+| `[validation]` | Matplotlib physical-field figures | No, for exported arrays |
+| `[plot]` | PyVista/VTK finite-element figures | Requires separate native-library qualification |
+
+Reading saved conductivity arrays and summaries needs none of these extras.
 These optional dependencies are lazy: legacy imports and reconstruction work
 without sampling, diagnostics or plotting installed.
 
@@ -128,7 +139,14 @@ Jupyter, or any finite-element calculation**:
 conda activate s2dhi-hmc
 export FI_PROVIDER=tcp
 export S2DHI_HMC_QUALIFICATION=1
-PYTHONPATH="$PWD/src" python -m pytest -q tests/test_hmc_mpi_shutdown.py
+export PYTHONPATH="$PWD/src"
+python - <<'PY'
+import subprocess, sys
+subprocess.run(
+    [sys.executable, "-m", "pytest", "-q", "tests/test_hmc_mpi_shutdown.py"],
+    check=True, timeout=150,
+)
+PY
 ```
 
 To retain the provider choice for future activations of this environment:
@@ -143,8 +161,9 @@ An already initialized MPI process cannot adopt this startup change.
 The optional check requires three independent single-rank processes to use
 normal mpi4py initialization with `THREAD_MULTIPLE`, pass a barrier, return from
 explicit `MPI.Finalize()`, print a subsequent marker and exit
-successfully. Each process has a 30-second limit. A saved posterior trajectory
-alone does not establish that its process shut down cleanly.
+successfully. Each process has a 30-second limit; the command above also bounds
+the entire check to 150 seconds. A timeout fails qualification. A saved posterior
+trajectory alone does not establish that its process shut down cleanly.
 
 The setting selects an existing libfabric provider; it is an explicit environment
 configuration, rather than a repair to MPICH or libfabric source. Local minimal
@@ -174,15 +193,25 @@ its MPI installation intact.
 
 The dedicated macOS environment inherited compiler flags from an unrelated conda
 calculation. Those flags produced duplicate-RPATH libraries during finite-element
-form compilation. The measured local checks cleared them and used Apple's native
-compiler with an explicit bundle linker command:
+form compilation, which can surface as a duplicate `LC_RPATH` native-library
+load error. Cached compiled forms can conceal this problem. The measured local
+checks cleared them and used Apple's native compiler with an explicit bundle linker command:
 
 ```bash
 unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CPATH LIBRARY_PATH
 export CC=/usr/bin/clang CXX=/usr/bin/clang++
 export LDSHARED='/usr/bin/clang -bundle -undefined dynamic_lookup'
 export XDG_CACHE_HOME="$(mktemp -d /tmp/hmc-compile.XXXXXX)"
-python -c "from forward_solver import SteadyHeat2DForwardSolver; f=SteadyHeat2DForwardSolver(nmesh=2,h=1.0,q=1.0); f.solve(); print('fresh-cache heat solve passed')"
+python - <<'PY'
+import subprocess, sys
+subprocess.run(
+    [sys.executable, "-c",
+     "from forward_solver import SteadyHeat2DForwardSolver; "
+     "f=SteadyHeat2DForwardSolver(nmesh=2,h=1.0,q=1.0); "
+     "f.solve(); print('fresh-cache heat solve passed')"],
+    check=True, timeout=120,
+)
+PY
 ```
 
 This fresh-cache probe checks real form compilation rather than reusing an old
@@ -192,3 +221,11 @@ own compiler and linker; the macOS linker command above is platform-specific.
 PyVista/VTK is deliberately absent from the FEM environment because of the known
 native-library conflict. Use the notebook's lightweight Matplotlib renderer or
 exported NumPy fields in a separate plotting environment.
+
+A fresh-cache compilation must complete **and its process must exit** within
+the declared bound. It complements the three independent MPI-exit checks; it
+does not establish posterior convergence. The [16 November numerical
+reproducibility limits](validation/hmc-status.md#numerical-reproducibility) include
+an open omission of effective local/user DOLFINx and FFCx settings from saved
+continuation identities. Keep those compiler settings unchanged independently;
+these platform-specific commands do not correct that omission.

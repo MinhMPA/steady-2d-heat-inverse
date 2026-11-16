@@ -42,51 +42,116 @@ controls amplitude through this elliptic construction. All prior parameters stay
 fixed. The example uses `mu=0, kappa=2, tau=1, h_ref=1`; these are illustrative
 choices, rather than a validated prior for sharp material interfaces.
 
-## One declared physical experiment
+## A complete, deliberately short experiment
+
+This example heats a unit square with source `q=1`, a 300 K bottom wall and
+insulated remaining walls. Nine fixed thermometers observe a smooth conductivity
+on a generating mesh with four subdivisions per side. Inference uses a separate,
+coarser triangle mesh with two subdivisions per side (nine conductivity nodes).
+One seeded Gaussian noise realization has known `sigma=0.05` K. These choices
+make a small execution check; they do not qualify uncertainty or continuum accuracy.
+
+Run from an installed checkout in the [qualified native environment](installation.md#separate-cpu-posterior-environment),
+using one MPI rank. The output is a new disposable directory; keep the printed
+path for the [saved-result examples](hmc-results.md). All variables are defined here.
 
 ```python
-from conductivity_prior import GaussianLogConductivity
-from heat_inference import HeatInverseProblem
-from heat_model import HeatNumerics, NodalField
-from hmc_blackjax import HMCControls
-from temperature_observations import TemperatureObservations
+from pathlib import Path
+import tempfile
+import numpy as np
 
-observations = TemperatureObservations(sensor_points, measured_kelvin, sigma=1e-3)
-problem = HeatInverseProblem(
-    forward=forward, observations=observations,
-    prior=GaussianLogConductivity(mu=0, kappa=2, tau=1, h_ref=1),
-    numerics=HeatNumerics(),
+from conductivity_prior import GaussianLogConductivity
+from forward_solver import SteadyHeat2DForwardSolver
+from heat_inference import HeatInverseProblem
+from heat_model import HeatNumerics
+from hmc_blackjax import HMCControls
+from temperature_observations import SensorOperator, TemperatureObservations
+
+truth = SteadyHeat2DForwardSolver(
+    nmesh=4, mesh_type="triangle",
+    h=lambda x: 1 + 0.2*x[0] + 0.1*x[1], q=1.0, DBC_value=300.0,
 )
-estimate = problem.optimize(initial_h=1.0)
-print(estimate.success, estimate.message)
-samples = problem.sample(
-    initial=estimate, seed=7, output="runs/example"
+truth.solve()
+axis = (0.25, 0.5, 0.75)
+sensor_points = np.array([(x, y) for x in axis for y in axis])
+sigma = 0.05  # kelvin, independently for each thermometer
+noiseless_kelvin = SensorOperator(truth.V, sensor_points).predict(truth.T.x.array)
+measured_kelvin = noiseless_kelvin + np.random.default_rng(19).normal(
+    scale=sigma, size=len(sensor_points)
 )
+observations = TemperatureObservations(sensor_points, measured_kelvin, sigma=sigma)
+prior = GaussianLogConductivity(mu=0, kappa=2, tau=1, h_ref=1)
+forward = SteadyHeat2DForwardSolver(
+    nmesh=2, mesh_type="triangle", h=1.0, q=1.0, DBC_value=300.0,
+)
+forward.solve()
+caller_h = np.array(forward.h.function.value, copy=True)  # this h is a Constant
+caller_T = forward.T.x.array.copy()
+output = Path(tempfile.mkdtemp(prefix="heat-demo-")) / "posterior"
+probabilities = (0.025, 0.16, 0.5, 0.84, 0.975)
+
+with HeatInverseProblem(
+    forward=forward, observations=observations, prior=prior, numerics=HeatNumerics(),
+) as problem:
+    estimate = problem.optimize(
+        initial_h=1.0, maxiter=500, gtol=1e-6, ftol=1e-12,
+    )
+    print("Optimization:", estimate.success, estimate.message)
+    with problem.sample(
+        initial=estimate, seed=7, chains=1, warmup=8, draws=12, output=output,
+        controls=HMCControls(
+            initial_step_size=0.1, step_size_bounds=(1e-6, np.pi/8),
+            initial_spread=0.3,
+        ),
+    ) as samples:
+        report = samples.diagnostics(quantiles=probabilities)
+        summary = samples.summary(quantiles=probabilities)
+        print("Sampling:", report.status, report.reasons)
+        print("Summary:", summary.counts, summary.qualified)
+        h_mean, h_sd = summary.mean, summary.sd
+        pointwise_68 = summary.quantiles[[1, 3]]
+        pointwise_95 = summary.quantiles[[0, 4]]
+        xy, cells = summary.coordinates.copy(), summary.cells.copy()
+        assert h_mean.shape == (len(xy),)
+        assert np.array_equal(summary.probabilities, probabilities)
+        assert np.array_equal(report.probabilities, probabilities)
+        assert not report.qualified and not summary.qualified
+
+assert np.array_equal(caller_h, forward.h.function.value)
+assert np.array_equal(caller_T, forward.T.x.array)
+print("Saved result:", output)
 ```
 
+The example's large step size `0.1` is confined to this coarse, weakly constrained
+experiment, following the small-mesh workflow check. It is **not a recommendation
+for larger meshes or more precise thermometers**. One chain and twelve retained
+draws remain unqualified even if trajectories finish without divergences. The
+production defaults and their scientific limits are given separately below.
+
 `HeatInverseProblem` freezes the mesh, heat source, boundary temperatures,
-measurements, prior and numerical tolerances. The caller's current conductivity
-and temperature do not define the experiment and remain unchanged by optimization,
-sampling, private temperature predictions and summaries. Every heat solve uses one
-MPI rank, CPU float64 and fixed tolerances. A failed heat solve stops the run with
-its diagnostic. Nonfinite proposals repeat the last valid state and count as
-divergences. The legacy adaptive heat-solve tolerances are not used here.
+measurements, prior and numerical tolerances. Optimization and sampling use the
+same posterior and preserve the caller's conductivity and temperature. Closing the
+problem releases its private heat/adjoint workspaces; the caller still owns
+`forward` and `truth`, which may be used again. Saved-result handles are closed
+by their context managers. The forward solver has no public `close()` method;
+its own finite-element objects retain their usual lifetime in the calling program.
 
-For the dedicated macOS ARM64 MPICH environment, set `FI_PROVIDER=tcp` before
-starting Python or Jupyter and run the bounded
-[MPI shutdown qualification](installation.md#macos-mpich-transport-and-shutdown).
-Child processes inherit the declared transport controls. These controls belong to
-the saved numerical identity: changing `FI_PROVIDER`, `FI_TCP_IFACE` or
-`FI_SOCKETS_IFACE` prevents append, while existing archives remain readable
-without MPI. Other MPI installations require their own qualification.
+A scalar, callable or `NodalField(values, coordinates)` (from `heat_model`) can
+supply `initial_h`. Nodal coordinates must match the inference mesh; there is no
+automatic cross-mesh transfer. `problem.initial_state(value)` constructs a complete
+inferred state. Pass `initial=estimate` to preserve every inferred coordinate.
+Optimization returns a `PosteriorEstimate`, whose `success` and `message` must be
+read before calling it a mode: a failed search returns its last finite candidate.
+A finite candidate may still initialize sampling; it is not a convergence claim.
 
-A scalar, callable or `NodalField(values, coordinates)` can supply an initial
-conductivity. Nodal coordinates must match the inference mesh; there is no automatic
-cross-mesh transfer. `problem.initial_state(value)` constructs a complete inferred
-state. Pass `initial=estimate`, rather than extracting conductivity alone: this
-preserves every inferred coordinate. Optimization reports the mode of the density
-in **log conductivity** as a physical field. Check its `success` and `message`;
-a failed search explicitly returns its last finite state, not a claimed mode.
+Every heat solve uses CPU float64, one MPI rank and fixed tolerances. A failed
+finite heat or adjoint solve stops the calculation with its diagnostic. Nonfinite
+proposals repeat the last valid state and count as divergences. The legacy adaptive
+heat-solve tolerances are not used here. For the measured macOS ARM64 MPICH
+environment, declare TCP transport and the clean compiler settings **before**
+starting Python, following [installation](installation.md#macos-mpich-transport-and-shutdown).
+The [dated evidence](validation/hmc-status.md#numerical-reproducibility) records the
+still-open limitation in identifying effective form-compiler settings.
 
 ## Chains and trajectories
 
@@ -103,18 +168,21 @@ convergence. The final numerical revision requires its new matching pilot before
 calibration. Explicit per-chain starts and custom controls use
 
 ```python
-from hmc_blackjax import HMCControls
-
-starts = [problem.initial_state(value) for value in (0.9, 1.0, 1.1, 1.2)]
-samples = problem.sample(
-    initial_states=starts, chains=4, seed=7, warmup=1000, draws=2000,
-    controls=HMCControls(
-        initial_step_size=5e-4, step_size_bounds=(1e-6, 1e-3),
-        target_acceptance=0.8,
-        trajectory_interval=(0.7853981633974483, 2.356194490192345),
-        initial_spread=0.3,
-    ),
-)
+# Optional longer calculation: the short example above has already closed its problem.
+with HeatInverseProblem(
+    forward=forward, observations=observations, prior=prior, numerics=HeatNumerics(),
+) as problem:
+    starts = [problem.initial_state(value) for value in (0.9, 1.0, 1.1, 1.2)]
+    with problem.sample(
+        initial_states=starts, chains=4, seed=7, warmup=1000, draws=2000,
+        controls=HMCControls(
+            initial_step_size=5e-4, step_size_bounds=(1e-6, 1e-3),
+            target_acceptance=0.8,
+            trajectory_interval=(0.7853981633974483, 2.356194490192345),
+            initial_spread=0.3,
+        ),
+    ) as longer:
+        print(longer.output)  # inspect current diagnostics before scientific use
 ```
 
 Supply either `initial` or `initial_states`. Explicit states are used exactly;
@@ -123,8 +191,13 @@ execution check is explicit: `chains=1, warmup=8, draws=12`. It cannot establish
 four-chain convergence.
 
 The dynamics combine likelihood-force kicks with exact Gaussian-prior rotations,
-identity momentum covariance and randomized trajectory durations. Only step size
-adapts during warmup. Retained draws use frozen controls. Zero warmup requires
+identity momentum covariance and randomized trajectory durations. This is a
+custom split-Hamiltonian calculation using BlackJAX component machinery, rather
+than an unmodified default NUTS or stock HMC call. The existing discrete-adjoint
+connection evaluates the PDE eagerly on CPU in float64. A likelihood-gradient
+evaluation needs one heat solve and one adjoint solve, independently of the
+number of conductivity unknowns; a trajectory evaluates many such forces. Only
+step size adapts during warmup. Retained draws use frozen controls. Zero warmup requires
 `adapt_step_size=False` and an explicitly supplied step size, even when that
 value equals the library default. The randomized duration law remains
 `(pi/4, 3*pi/4)`. The notebook uses explicit
@@ -139,105 +212,56 @@ stopped calculation is retained as evidence. The new reference-informed defaults
 replace that provisional spacing and ceiling. A failed finite heat solve still
 stops the run. The notebook retains its independently chosen explicit controls.
 
-## Saved fields, errors and physical interpretation
+## Physical uncertainty and qualification
 
-```python
-report = samples.diagnostics()  # optional [diagnostics] extra; saves an advisory report
-summary = samples.summary()    # uses a matching report; does not run diagnostics
-h_mean, h_sd = summary.mean, summary.sd
-pointwise_90 = summary.quantiles[[0, 2]]  # defaults: 0.05, 0.5, 0.95
-print(summary.counts, summary.qualified)
-h_one = samples.field(chain=0, draw=0)
-T_one = samples.temperature(chain=0, draw=0)
-predicted_kelvin = samples.sensor_predictions(chain=0)
-residual = (predicted_kelvin.mean(axis=0) - observations.values) / observations.sigma
-subset = samples.load_draws(chains=[0], start=0, stop=10)
-```
+The probabilities in the complete example request equal-tailed **pointwise 68%
+and 95% credible intervals of physical conductivity**. Use the same probabilities
+for `samples.diagnostics(quantiles=probabilities)` and
+`samples.summary(quantiles=probabilities)`, so the quantile Monte Carlo errors and
+summary qualification refer to the intervals being interpreted. Summary alone
+does not run diagnostics. A missing, stale or incomplete matching diagnostic
+report leaves `summary.qualified=False`.
 
-Fields have immutable physical coordinate labels and cell connectivity. Full
-`load_draws()` allocates `(chain, draw, node)` arrays explicitly; summaries read
-bounded node chunks from disk. Every retained iteration contributes, including
-rejection repeats. `summary.counts` gives committed counts per chain. Summaries
-pool available states, so unequal partial chains contribute unequal weight and
-cannot qualify the requested calculation.
+Transform each draw to conductivity before averaging: $E[h]$ generally differs
+from $h_{ref}\exp(E[m])$. The optimized result is the mode in **log conductivity**,
+reported as a physical field; the sampling estimate is the mean of **physical
+conductivity**. These need not coincide. Pointwise intervals describe each
+location separately, not a simultaneous 95% envelope for the whole field.
 
-The physical transformation precedes statistics: $E[h]$ generally differs from
-$h_{ref}\exp(E[m])$. Pointwise credible intervals are not simultaneous field bands.
-Likewise $T(E[h])$ generally differs from $E[T(h)]$. Average temperatures from saved
-conductivity draws to estimate posterior mean temperature. Saved thermometer
-predictions already supply this averaging at sensor locations. These are latent
-temperature predictions; a future measurement also has measurement noise.
+Likewise $T(E[h])$ generally differs from $E[T(h)]$. Average temperatures evaluated
+at individual draws to estimate posterior mean temperature; saved thermometer
+predictions already allow that averaging at sensor positions. These are latent
+temperature predictions. A future thermometer reading also includes measurement
+noise.
 
-Convergence requires four chains, rank-normalized split/folded $\widehat R<1.01$,
-combined bulk and tail ESS at least 400 for every monitored nonconstant quantity,
-and zero retained divergences. Inspect `report.per_quantity` for mean/quantile
-Monte Carlo errors and `report.worst_locations` for spatial weaknesses. Missing or
-nonfinite diagnostics cannot pass; a successful execution is not convergence
-evidence. If the optional diagnostic package is absent, the report remains
-explicitly unqualified with reasons.
+Qualification requires four chains, rank-normalized split/folded
+$\widehat R<1.01$, combined bulk and tail ESS at least 400 for every monitored
+nonconstant quantity, and zero retained divergences. Inspect `report.per_quantity`
+for mean/quantile Monte Carlo errors, `report.worst_locations` for spatial weaknesses,
+and `report.reasons` for missing evidence. Missing or nonfinite diagnostics cannot
+pass; absent optional diagnostic packages produce an explicitly unavailable,
+unqualified report. The short example cannot meet the four-chain requirement.
 
-Chain convergence, numerical heat-solve accuracy, mesh approximation and prior
-adequacy are separate conclusions. Analytically prescribed boundary thermometers
-have zero stochastic uncertainty. Their interpolated values may still have raw
-residuals: `report.fixed_sensor_consistency` preserves their ranges and deviations,
-and labels every nonzero discrepancy unverified. Convergence qualification does
-not establish numerical consistency for those sensors.
+Analytically prescribed boundary thermometers have zero stochastic uncertainty.
+`report.fixed_sensor_consistency` separately retains raw interpolation residuals
+and labels every nonzero discrepancy unverified. Chain convergence does not
+establish that numerical consistency. Monte Carlo error, repeated-experiment
+calibration, finite-element discretization error and prior adequacy are distinct
+questions. A Gaussian prior can smooth sharp material interfaces even with
+well-converged chains. The [16 November evidence summary](validation/hmc-status.md)
+separates the qualified saved mesh-32 diagnostic snapshot from the incomplete
+calibration and mesh/prior studies.
 
-## Physical figures and explicit application
+The [saved-result and continuation guide](hmc-results.md) covers physical field
+arrays, full temperature predictions, figures, explicit application to a caller's
+heat model, interrupted histories and deterministic closure. For exported plots,
+label the curves **Sampling** and **Optimization** and distinguish the two
+pointwise interval levels using one sampling color with two band opacities.
 
-The notebook uses optional Matplotlib with recorded coordinates and connectivity,
-then exports small `illustrative-fields.npz`, `conductivity.png` and
-`temperature-residuals.png` files inside the run directory. A separate plotting
-environment can load the NumPy archive. Keep the FEM environment intact: the
-PyVista/VTK extra has a known native-library conflict in the current environment.
-An optional, separately qualified existing plot route is
-
-```python
-from plotting_utils import plot_scalar_mesh
-f = samples.as_function(summary="mean")
-plot_scalar_mesh(f.function_space, f.x.array, "h")
-```
-
-The independent triangle/quadrilateral node-association test checks this mapping;
-it does not qualify an installed PyVista/VTK environment. Explicitly applying a
-selected field checks the destination mesh, source and boundaries:
-
-```python
-T_at_mean_h = samples.apply_to(forward, summary="mean")
-# Or samples.apply_to(forward, chain=0, draw=0)
-```
-
-This updates the caller's conductivity and corresponding temperature. The result
-is $T(E[h])$ for `summary="mean"`. Standard deviation is not an applicable physical
-conductivity. Current caller conductivity/temperature values are excluded from the
-experiment-compatibility comparison.
-
-## Interruption, continuation and storage
-
-The output must be a new directory; the default is a unique directory under
-`runs/`. It contains `problem.json`, `problem.npz`, `chains.sqlite` and advisory
-`status.json`. Diagnostics add `diagnostics.json`. SQLite records every warmup and
-retained iteration, random state, adaptation and continuation state transactionally.
-Long histories belong in run directories rather than notebook outputs. Close
-results and inference problems when finished, or use their context managers.
-
-```python
-with HeatInverseProblem.load("runs/example") as restored:
-    with restored.resume("runs/example") as result:
-        print(result.summary().counts)  # finish the original per-chain target
-    with restored.resume("runs/example", total_draws=4000) as extended:
-        report = extended.diagnostics()  # old qualification no longer applies
-```
-
-After interruption, resume recovers the last committed trajectory. Explicit
-extension raises the target rather than changing the scientific problem. Changed
-physics, numerical settings or recorded environment cannot append to the run.
-Copy a closed run directory or use SQLite's backup operation; copying an active
-database alone is not a backup.
-
-The original integrated-misfit, roughness-regularized reconstruction remains
-available with its original mathematics. Its regularization parameter and objective
-do not become this fixed-sensor posterior's noise law or prior.
+The original integrated-misfit, roughness-regularized TAO reconstruction remains
+available with its original mathematics. It uses a different objective: its
+regularization parameter does not become this fixed-sensor posterior's noise law
+or prior.
 
 ## Smooth and sharp physical comparisons
 
