@@ -173,3 +173,22 @@ also include continued admission following pilot-memory or SQLite-storage
 exhaustion. A failed calculation must be investigated; this guide does not treat
 those failure modes as repaired or authorize changes to an existing scientific
 archive.
+
+## Recovery evidence and unfinished extensions
+
+Transactional history preservation does not guarantee safe admission of another
+calculation after resource exhaustion. The [validation guide](testing.md#open-recovery-and-notebook-limitations)
+separates existing continuation checks from the still-open pilot-memory,
+SQLite-storage, compiler-identity and closed-chain-memory findings. After an
+exhaustion failure, preserve the committed archive, inspect the cause and restore
+capacity before starting more work. No repair of these findings is claimed here.
+
+For mesh/prior studies, an extension request and an older `result.json` can
+coexist. The shared study report labels that situation `extension_in_progress`;
+the final notebook cell currently reads the old result directly and can display
+old figures as if current. It also searches `../runs`, which selects the wrong
+location when launched at the project root. The dated [notebook checks](testing.md#open-recovery-and-notebook-limitations)
+reproduce both defects. Avoid that final cell on scientific archives until its
+separate correction: select the intended study explicitly, inspect the
+shared generation-aware report, and label any previous figures as historical.
+An old qualified posterior does not qualify an unfinished extension.

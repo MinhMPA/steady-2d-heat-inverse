@@ -133,6 +133,27 @@ execution of examples. Linux CI, live Read the Docs publication, the three
 long manufactured-Gaussian recovery tests and new scientific campaigns were
 not verified in that review. This documentation update launches no campaign.
 
+## Documentation-update notebook checks
+
+On 16 November the exact notebook computation test completed in **80.51 s**
+with one test passing in a disposable source copy. It used the qualified native
+interpreter, 600 s per-cell and 1,200 s external limits, executed all code cells
+with `plot=True`, produced both PNGs, and completed kernel/process shutdown.
+Both images were inspected. The short one-chain posterior remains unqualified;
+the notebook's illustrative conductivity spread is a pointwise 90% width,
+separate from the prepared 68%/95% conductivity slices above.
+
+Separate manufactured studies exercised the actual final notebook cell from
+both supported working directories. The `notebooks` case found one study and
+its shared report marked an unfinished extension, but notebook output still
+presented old `sampled` evidence without historical figure labels. The root
+case found zero studies despite one project manifest, writing into its parent.
+The combined future-acceptance assertion failed as expected. The successful
+full notebook execution therefore does not establish correct report location
+or current-generation evidence. The [validation guide](../testing.md#open-recovery-and-notebook-limitations)
+lists the precise conditions required after separately reviewed source fixes.
+No new long scientific study or Linux CI result is asserted.
+
 ## Compact saved-record provenance
 
 The scalar summaries above were refreshed directly from the saved records on
