@@ -200,14 +200,15 @@ use a disposable copy with a local MathJax 4 SVG bundle and its calligraphic fon
 because the local headless browser could not complete the CDN TLS handshake.
 Published MathJax configuration is unchanged. Optional speech-worker requests
 failed in that preview, so this is visual typesetting evidence rather than an
-accessibility or hosted-CDN check. The tutorial likelihood/prior and opening
-heat/legacy equations were visibly typeset. Complete narrow-page inspection and
-deeper posterior/force/Hamiltonian equation inspection remain unverified after
-the rendering tool stalled at approval. The earlier figure-only narrow preview
-retained both conductivity slices; long equations and calculation listings may
-require horizontal scrolling. The public-reference tables were changed to wrap
-after the desktop preview exposed clipped descriptions; their final visual
-confirmation also remains pending.
+accessibility or hosted-CDN check. The posterior, adjoint-force and split-Hamiltonian
+equations were visibly typeset in desktop views. README, landing page, tutorial,
+saved fields, theory, public reference and evidence were inspected at narrow
+widths. Wide displayed equations and tables have horizontal viewports; public
+signatures and parameter descriptions wrap within the page. The evidence table
+retains readable columns through horizontal scrolling rather than compressing
+words into tiny columns. The narrow conductivity figure retains both slices,
+with naturally small labels. These are local presentation checks; hosted access
+and accessibility remain unverified.
 
 The native evidence completed earlier in this update is separate: 57 workflow,
 saved-result, diagnostic and MPI checks; 168 prior/posterior/force checks;
