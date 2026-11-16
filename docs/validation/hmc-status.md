@@ -194,6 +194,14 @@ configuration warning; no broken external link was suppressed. An earlier check
 of superseded notebook URLs encountered missing GitHub targets and rate limiting;
 those links were replaced with downloads from the available source tree.
 
+For the next routine external-link check, omit the unsupported override:
+
+```bash
+sphinx-build -E -b linkcheck -D linkcheck_timeout=15 -D linkcheck_retries=1 docs docs/_build/linkcheck
+```
+
+This is the next-check recipe; the recorded check and its warning remain as reported above.
+
 Desktop rendered openings were inspected for the README, landing page, posterior
 tutorial, saved fields, theory, public reference and this evidence page. Equation previews
 use a disposable copy with a local MathJax 4 SVG bundle and its calligraphic font,

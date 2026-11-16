@@ -38,6 +38,8 @@ Conductivity recovered by optimization and sampling. Shading shows pointwise
 68% and 95% credible intervals.
 ```
 
+[Open full-size figure](_static/figures/conductivity-inference.svg).
+
 Two central slices show the physical-conductivity posterior mean (blue), the
 log-conductivity mode candidate (orange), and the generating truth. Darker
 shading marks 68% and lighter shading 95%. This example uses four chains of

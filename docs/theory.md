@@ -56,7 +56,7 @@ can imprint noise onto $h$; too much can suppress genuine structure.
 
 Introduce the Lagrangian with multiplier (adjoint state) $\lambda$,
 
-$$\mathcal{L} = J + \langle\lambda, g[T(h), h]\rangle,
+$$\mathcal{L} = J - \langle\lambda, g[T(h), h]\rangle,
 \qquad g[T(h),h] = -\nabla\cdot(h\nabla T) - q,$$
 
 Requiring stationarity with respect to $T$ gives the **adjoint equation**

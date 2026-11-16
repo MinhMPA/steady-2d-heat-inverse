@@ -40,6 +40,8 @@ their availability on `master` or in the live Read the Docs site.
 *Conductivity recovered by optimization and sampling. Shading shows pointwise
 68% and 95% credible intervals.*
 
+[Open full-size figure](docs/_static/figures/conductivity-inference.svg).
+
 <details>
 <summary>About this example</summary>
 
@@ -156,8 +158,19 @@ src/
   tao_solver.py            SteadyHeat2DTAOSolver — TAO wrapper, bounds, log(h) reparam
   domain_coefficient.py    BaseDomainCoefficient + ThermalConductivity / HeatSource
   plotting_utils.py        plot_scalar_mesh() — PyVista rendering (rank-0 only)
-tests/                     3 gradient verifications + 2 fast validation modules
-notebooks/                 ForwardSolve, InverseSolve, EvaluateSolution
+  heat_model.py            Heat equation and adjoint for fixed-sensor inference
+  temperature_observations.py  Fixed physical thermometers and Gaussian errors
+  conductivity_prior.py    Gaussian prior on log conductivity
+  conductivity_posterior.py  Shared likelihood, prior and adjoint gradient
+  heat_inference.py        Optimization, sampling and physical-field estimates
+  hmc_blackjax.py          Split-Hamiltonian trajectories and Metropolis correction
+  hmc_run.py               Chain controls and continuation
+  posterior_store.py       Saved chain histories and calculation identities
+  posterior_samples.py     Saved conductivity draws and heat predictions
+  posterior_diagnostics.py  Chain convergence summaries
+tests/                     Legacy gradient/solver checks and test_hmc_* posterior checks
+notebooks/                 ForwardSolve, InverseSolve, HMCSampling,
+                           MultiFidelitySolve, MultiFidelityBenchmark
 test_data/                 blackbox_output.{xdmf,h5} — synthetic "measured" data
 docs/                      Sphinx documentation source
 ```
