@@ -4,9 +4,65 @@
 
 📖 **[Full documentation](https://steady-2d-heat-inverse.readthedocs.io/)** — theory, usage, and API reference.
 
-PDE-constrained inverse problem: infer the spatially-varying thermal conductivity `h(x,y)`
-of a 2D unit square from a noisy steady-state temperature field, using a **discrete
-adjoint** gradient driven by **PETSc TAO** bound-constrained optimization.
+Recover a spatially varying thermal conductivity `h(x,y)` from noisy steady-state
+temperature measurements, using the heat equation as the physical model.
+
+## Optimization and sampling
+
+The conductivity posterior combines fixed physical thermometers, independent
+Gaussian measurement errors and a proper Gaussian prior on log conductivity.
+Two complementary estimates describe this same posterior:
+
+- **Optimization** finds a mode in log conductivity and maps it to a positive
+  conductivity field.
+- **Sampling** explores conductivity fields drawn from the posterior, giving a
+  mean reconstruction and uncertainty at each location.
+
+Both methods use the **discrete adjoint method** for the same data-misfit gradient.
+One forward heat solve and one adjoint solve give the gradient with respect to the
+entire conductivity field, independently of its number of unknowns. Sampling uses
+**Hamiltonian Monte Carlo (HMC)**: auxiliary momenta and adjoint gradients guide
+trajectories through the posterior. The custom split-Hamiltonian calculation uses
+BlackJAX components; each trajectory requires many gradient evaluations.
+
+Start with the [common-posterior tutorial](docs/hmc.md),
+[saved fields and continuation](docs/hmc-results.md), and
+[current scientific evidence](docs/validation/hmc-status.md).
+The [legacy TAO example](#legacy-tao-example) below retains its original,
+different regularized objective.
+
+**Availability:** the optimization and sampling interfaces are present on this
+`docs/hmc-inference-guide` implementation branch. This page does not establish
+their availability on `master` or in the live Read the Docs site.
+
+![Conductivity recovered by optimization and sampling, with truth and pointwise credible intervals](docs/_static/figures/conductivity-inference.svg)
+
+*Conductivity recovered by optimization and sampling. Shading shows pointwise
+68% and 95% credible intervals.*
+
+<details>
+<summary>About this example</summary>
+
+Both estimates use the same measurements and Gaussian log-conductivity prior on a
+32 × 32 mesh. Sampling combines four qualified chains with 1,024 retained draws
+each. Blue shows the posterior mean of physical conductivity; the optimization
+curve is a successfully terminated mode candidate in log conductivity. Darker
+and lighter shading gives equal-tailed 68% and 95% credible intervals at each
+position (16/84 and 2.5/97.5 percentiles).
+
+The horizontal slice fixes `y = 0.5`; the vertical slice fixes `x = 0.5`. The known
+truth was generated on mesh 16 and evaluated on these slices. These are pointwise
+intervals for one discrete synthetic experiment, conditional on the data and
+model. They do not give simultaneous coverage of the field, establish calibration,
+or test continuum accuracy. See the [evidence and provenance](docs/validation/hmc-status.md#chain-convergence).
+
+[Plotted values](docs/_static/figures/conductivity-slices.csv) ·
+[Calculation record](docs/_static/figures/conductivity-slices.json) ·
+[Redraw the figure](scripts/plot_inference_example.py)
+
+</details>
+
+## Heat model and legacy optimization
 
 1. **Forward** — solve the 2D steady-state heat equation `-∇·(h∇T) = q` on `[0,1]²` with
    P1 Lagrange elements (DOLFINx): Dirichlet `T(y=0) = 300 K`, insulated (zero-flux
@@ -39,7 +95,7 @@ pip install -e ".[dev]"      # omit [dev] if you do not need pytest
 The sources are installed as **flat top-level modules**, so imports are
 `from forward_solver import ...` — never `from src.forward_solver import ...`.
 
-## Usage
+## Legacy TAO example
 
 ```python
 from forward_solver import SteadyHeat2DForwardSolver
@@ -67,7 +123,7 @@ adj.solve()
 h_sol = SteadyHeat2DTAOSolver(fwd, adj, verbose=1).solve()
 ```
 
-All solvers are MPI-aware:
+The legacy solvers support MPI; posterior sampling uses one rank:
 
 ```bash
 mpirun -n 4 python script.py
@@ -75,16 +131,12 @@ mpirun -n 4 python script.py
 
 ### Conductivity posterior
 
-The full-field posterior uses fixed physical thermometers with known independent
-Gaussian errors and a proper Gaussian log-conductivity prior. Optimization and
-sampling describe the same declared posterior; the original reconstruction above
-retains its mathematics. CPU sampling uses one MPI rank and four chains by default.
-
-Start with [the conductivity workflow](docs/hmc.md) and the executable
-[HMCSampling notebook](notebooks/HMCSampling.ipynb). Its short illustrative run is
-unqualified. The planned scientific report is `docs/validation/hmc-mesh-study.md`;
-no mesh-study results are supplied here. See [installation](docs/installation.md)
-for the separate constrained sampling environment and optional diagnostics.
+For the common-posterior calculation, use the [tutorial](docs/hmc.md) and
+[HMCSampling notebook](notebooks/HMCSampling.ipynb). The notebook's short run is
+unqualified. CPU sampling uses one MPI rank and four chains by default. See
+[installation](docs/installation.md) for the separate constrained sampling
+environment and optional diagnostics, and [current evidence](docs/validation/hmc-status.md)
+for qualification and unfinished calibration, mesh and prior studies.
 
 ### Notebooks
 
@@ -123,7 +175,8 @@ pytest -m gradcheck   # just the three gradient checks — real FEM solves, take
 
 ## Documentation
 
-Hosted on Read the Docs and rebuilt on every push to `master`:
+The existing documentation is hosted on Read the Docs. The new conductivity
+inference guide on this branch has not been verified as deployed there:
 
 **[steady-2d-heat-inverse.readthedocs.io](https://steady-2d-heat-inverse.readthedocs.io/)**
 

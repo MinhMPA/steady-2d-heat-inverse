@@ -80,7 +80,7 @@ napoleon_numpy_docstring = True
 # -- HTML output -------------------------------------------------------------
 
 html_theme = "sphinx_rtd_theme"
-html_static_path = []
+html_static_path = ["_static"]
 html_theme_options = {
     "navigation_depth": 3,
     "collapse_navigation": False,

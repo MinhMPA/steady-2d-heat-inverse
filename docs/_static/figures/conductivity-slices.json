@@ -1,0 +1,39 @@
+{
+  "source_revision": "3df71cacf650f94d77c54fc0dbcf0f916825e199",
+  "inference_mesh_cells": [
+    32,
+    32
+  ],
+  "generating_mesh_cells": [
+    16,
+    16
+  ],
+  "chains": 4,
+  "retained_draws_per_chain": 1024,
+  "qualified": true,
+  "posterior_identity": {
+    "counts": [
+      1024,
+      1024,
+      1024,
+      1024
+    ],
+    "requested_total": 1024,
+    "chains": 4,
+    "problem_id": "58b44bcccf6a654c7847c7ba9b7c443c30c50e2d4b211d535ecfb20f84e8dc41",
+    "numerical_id": "a83eee0965795535382df72ba21d5de296d44e1755607d66a2c30cb3e75c21ea",
+    "problem_digest": "f641068fe4a95fa1fbfcadf5062afd0c3fbc086347409e4ea4d3b7483ac78126",
+    "run_digest": "0f396d3f550a74c91d2e38005dab457207c8cec26c8dff529bb2742f57b9f473"
+  },
+  "intervals": "Pointwise equal-tailed 16/84 and 2.5/97.5 percentiles of physical conductivity",
+  "sampling_curve": "Posterior mean of physical conductivity",
+  "optimization_curve": "Converged mode candidate in log conductivity",
+  "optimization_success": true,
+  "selection": "Central horizontal and vertical slices, chosen geometrically",
+  "csv_sha256": "75fbb1e756482f88520a5eb58b26aed604de26d7bed07e411e7cc1c4e082742a",
+  "source_sha256": {
+    "estimate.npz": "269a6e582a3231f46176fb12774b9b9b4d771b7f4db5ca71089d52c95661b1d5",
+    "generating-truth.npz": "8619250714df36a0ac262a5cca36b444cbd9016f66ebdf5a13c814318b22c5f1",
+    "generating-mesh.npz": "f7dc95bbd4f763473dbca8f18842027c0221c09cd13b131cde5716d1477a4205"
+  }
+}
