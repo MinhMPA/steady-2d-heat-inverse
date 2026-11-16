@@ -258,6 +258,10 @@ heat model, interrupted histories and deterministic closure. For exported plots,
 label the curves **Sampling** and **Optimization** and distinguish the two
 pointwise interval levels using one sampling color with two band opacities.
 
+The [theory](theory.md#fixed-sensor-conductivity-posterior) derives the whitening
+map, sensor adjoint and split Hamiltonian. The [public reference](api/heat_inference.md)
+records physical array labels, method signatures, defaults and failure meanings.
+
 The original integrated-misfit, roughness-regularized TAO reconstruction remains
 available with its original mathematics. It uses a different objective: its
 regularization parameter does not become this fixed-sensor posterior's noise law
