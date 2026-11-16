@@ -1,5 +1,12 @@
 # Installation
 
+For conductivity sampling, use the source tree containing this guide and
+`src/heat_inference.py` (the `docs/hmc-inference-guide` branch). The reviewed
+sampling source is `3df71cacf650f94d77c54fc0dbcf0f916825e199`. No public
+branch download or `master` installation is assumed here; the commands below
+run from an already available checkout. See the [dated evidence](validation/hmc-status.md)
+for the distinction between local verification and publication.
+
 ## Requirements
 
 Python ≥ 3.11. The scientific stack (DOLFINx, PETSc, MPI) is **conda-only** — there is no

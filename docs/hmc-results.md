@@ -1,7 +1,3 @@
----
-orphan: true
----
-
 # Saved conductivity fields and continuation
 
 The saved history contains physical conductivities and predicted thermometer

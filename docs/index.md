@@ -62,6 +62,8 @@ theory
 usage
 testing
 hmc
+hmc-results
+validation/hmc-status
 validation/hmc-numerics
 validation/hmc-mesh-study
 validation/hmc-mpi-shutdown

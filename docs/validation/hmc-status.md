@@ -1,7 +1,3 @@
----
-orphan: true
----
-
 # Conductivity inference: evidence as of 16 November 2026
 
 Noisy temperature measurements constrain conductivity through the steady heat
@@ -176,3 +172,51 @@ and numerical calculation
 The source records remain immutable. Their small published summaries support
 the dated claims here; they do not replace the full histories for an
 independent recalculation.
+
+
+## Local documentation verification and delivery
+
+The documentation update on `docs/hmc-inference-guide` was constructed on
+16 November 2026 with Python 3.11.15, Sphinx 9.0.4, MyST Parser 5.2.0,
+NumPy 2.4.6 and the Read the Docs theme 3.1.0. The strict HTML build treated
+warnings as errors and completed without warnings. DOLFINx, PETSc, MPI, JAX,
+BlackJAX and SciPy were absent from this documentation environment; mocked
+imports therefore did not supply native scientific validation. The project's
+Python floor remains 3.11; the separate sampling qualification uses Python 3.12.
+
+All local HTML links, assets and fragments were checked, together with README
+source links. Existing notebooks are downloadable from this documentation's
+source revision. The historically advertised `EvaluateSolution.ipynb` is absent
+from this checkout and is identified as unavailable. An external-link check
+resolved all twelve remaining documentation URLs, including one PETSc redirect.
+Its optional command-line rate-limit override was unsupported and produced one
+configuration warning; no broken external link was suppressed. An earlier check
+of superseded notebook URLs encountered missing GitHub targets and rate limiting;
+those links were replaced with downloads from the available source tree.
+
+Desktop rendered openings were inspected for the README, landing page, posterior
+tutorial, saved fields, theory, public reference and this evidence page. Equation previews
+use a disposable copy with a local MathJax 4 SVG bundle and its calligraphic font,
+because the local headless browser could not complete the CDN TLS handshake.
+Published MathJax configuration is unchanged. Optional speech-worker requests
+failed in that preview, so this is visual typesetting evidence rather than an
+accessibility or hosted-CDN check. The tutorial likelihood/prior and opening
+heat/legacy equations were visibly typeset. Complete narrow-page inspection and
+deeper posterior/force/Hamiltonian equation inspection remain unverified after
+the rendering tool stalled at approval. The earlier figure-only narrow preview
+retained both conductivity slices; long equations and calculation listings may
+require horizontal scrolling. The public-reference tables were changed to wrap
+after the desktop preview exposed clipped descriptions; their final visual
+confirmation also remains pending.
+
+The native evidence completed earlier in this update is separate: 57 workflow,
+saved-result, diagnostic and MPI checks; 168 prior/posterior/force checks;
+the exact short tutorial and saved-result sequence in 42.93 s; and the complete
+notebook test in 80.51 s. The 168-check selection emitted 18 known PETSc option
+notices. The notebook reporting acceptance conditions still fail as described
+above. None of these checks completes calibration, mesh refinement, prior
+sensitivity or the outstanding source corrections. No production studies were
+launched, and saved scientific records were preserved.
+
+This is a local documentation result. No merge, push, update of `master`,
+Read the Docs deployment or hosted HMC availability is asserted.

@@ -144,7 +144,7 @@ for qualification and unfinished calibration, mesh and prior studies.
   injection, XDMF export of the synthetic "measured" data.
 - [notebooks/InverseSolve.ipynb](notebooks/InverseSolve.ipynb) — full reconstruction from
   `test_data/blackbox_output.h5`.
-- [notebooks/EvaluateSolution.ipynb](notebooks/EvaluateSolution.ipynb) — σ × α
+- `EvaluateSolution.ipynb` (historical notebook, absent from this checkout) — σ × α
   regularization sweep, Fourier transfer function `T(k)`, reconstruction-error histograms.
 
 ## Layout
@@ -180,13 +180,18 @@ inference guide on this branch has not been verified as deployed there:
 
 **[steady-2d-heat-inverse.readthedocs.io](https://steady-2d-heat-inverse.readthedocs.io/)**
 
+The following source links follow this checkout and include the sampling guide:
+
 | Page | Contents |
 |---|---|
-| [Installation](https://steady-2d-heat-inverse.readthedocs.io/en/latest/installation.html) | conda environment, the flat-module import convention |
-| [Theory](https://steady-2d-heat-inverse.readthedocs.io/en/latest/theory.html) | forward problem, objective, discrete adjoint, `log h` parametrization |
-| [Usage](https://steady-2d-heat-inverse.readthedocs.io/en/latest/usage.html) | every constructor option, accepted coefficient inputs, MPI notes |
-| [Testing](https://steady-2d-heat-inverse.readthedocs.io/en/latest/testing.html) | the three gradient verifications and the fast validation modules |
-| [API reference](https://steady-2d-heat-inverse.readthedocs.io/en/latest/api/index.html) | autodoc for all five modules |
+| [Installation](docs/installation.md) | conda environment and the flat-module import convention |
+| [Theory](docs/theory.md) | thermometer likelihood, prior, discrete adjoint and Hamiltonian trajectories |
+| [Posterior tutorial](docs/hmc.md) | one physical experiment, optimization and sampling |
+| [Saved fields](docs/hmc-results.md) | uncertainty, private predictions and continuation |
+| [Legacy usage](docs/usage.md) | original reconstruction, coefficient inputs and MPI notes |
+| [Testing](docs/testing.md) | completed checks and pending recovery conditions |
+| [Scientific evidence](docs/validation/hmc-status.md) | convergence, calibration, mesh studies and limitations |
+| [API reference](docs/api/index.md) | common-posterior and legacy interfaces |
 
 To build it locally:
 

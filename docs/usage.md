@@ -244,10 +244,10 @@ Conventions when extending the code:
 End-to-end examples live in `notebooks/` (not executed as part of the docs build, since
 they require the full DOLFINx stack):
 
-- [`ForwardSolve.ipynb`](https://github.com/MinhMPA/steady-2d-heat-inverse/blob/master/notebooks/ForwardSolve.ipynb)
+- {download}`ForwardSolve.ipynb <../notebooks/ForwardSolve.ipynb>`
   — forward solve, noise injection, XDMF export of the synthetic "measured" data.
-- [`InverseSolve.ipynb`](https://github.com/MinhMPA/steady-2d-heat-inverse/blob/master/notebooks/InverseSolve.ipynb)
+- {download}`InverseSolve.ipynb <../notebooks/InverseSolve.ipynb>`
   — full reconstruction from `test_data/blackbox_output.h5`.
-- [`EvaluateSolution.ipynb`](https://github.com/MinhMPA/steady-2d-heat-inverse/blob/master/notebooks/EvaluateSolution.ipynb)
+- `EvaluateSolution.ipynb` (historical notebook, absent from this checkout)
   — $\sigma \times \alpha$ regularization sweep, Fourier transfer function $T(k)$, and
   reconstruction-error histograms.

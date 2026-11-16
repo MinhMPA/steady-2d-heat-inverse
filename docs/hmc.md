@@ -6,7 +6,10 @@ on the chosen P1/Q1 mesh. Full-field inference describes this discrete posterior
 continuum accuracy requires a separate mesh study.
 
 The executable example is
-[HMCSampling.ipynb](https://github.com/MinhMPA/steady-2d-heat-inverse/blob/master/notebooks/HMCSampling.ipynb).
+{download}`HMCSampling.ipynb <../notebooks/HMCSampling.ipynb>`, included from
+the same source revision as this guide. Sampling is available on the
+`docs/hmc-inference-guide` branch; availability on `master` or the hosted site
+is not established by this local build.
 Its default `nmesh=16`, four chains, 100 warmup iterations and 200 retained draws per
 chain are **illustrative and unqualified**. The data use `fine_nmesh=64`, 256 fixed
 interior thermometers and one seeded noise realization. The planned scientific

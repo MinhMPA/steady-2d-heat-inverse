@@ -1,5 +1,16 @@
 # Conductivity posterior interfaces
 
+```{raw} html
+<style>
+#conductivity-posterior-interfaces table th,
+#conductivity-posterior-interfaces table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#conductivity-posterior-interfaces table code {white-space: normal;}
+</style>
+```
+
 The physical inputs are a fixed heat experiment, thermometer readings and their
 known errors, a full-field log-conductivity prior, and fixed solve tolerances.
 The [tutorial](../hmc.md) gives a complete experiment; the
