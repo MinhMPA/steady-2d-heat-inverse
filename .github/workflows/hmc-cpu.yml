@@ -27,10 +27,16 @@ permissions:
   contents: read
 
 jobs:
-  hmc-cpu:
+  hmc-tests:
+    name: HMC tests (${{ matrix.group }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [continuation, gaussian, heat]
     timeout-minutes: 60
     env:
+      HMC_TEST_GROUP: ${{ matrix.group }}
       # Hosted runners may expose unusable RDMA devices; use local/TCP MPI.
       OMPI_MCA_pml: "ob1"
       OMPI_MCA_btl: "self,sm,tcp"
@@ -126,7 +132,22 @@ jobs:
           PY
       - name: Require non-study HMC tests and notebook computation cells
         run: |
-          python -m pytest tests/test_hmc*.py -q -m "not hmc_study" \
+          # Independent calculation groups retain the full test selection.
+          case "$HMC_TEST_GROUP" in
+            continuation) test_targets=(tests/test_hmc_continuation.py) ;;
+            gaussian) test_targets=(tests/test_hmc_gaussian.py) ;;
+            heat)
+              test_targets=()
+              for test_file in tests/test_hmc*.py; do
+                case "$test_file" in
+                  tests/test_hmc_continuation.py|tests/test_hmc_gaussian.py) ;;
+                  *) test_targets+=("$test_file") ;;
+                esac
+              done
+              ;;
+            *) echo "Unknown HMC test group: $HMC_TEST_GROUP" >&2; exit 2 ;;
+          esac
+          python -u -X faulthandler -m pytest "${test_targets[@]}" -v -s -m "not hmc_study" \
             --maxfail=1 --durations=10 --junitxml=/tmp/hmc-tests.xml
           python - <<'PY'
           from xml.etree import ElementTree
@@ -135,3 +156,19 @@ jobs:
           if skipped:
               raise SystemExit(f"Dedicated HMC job must not skip tests: {skipped} skipped")
           PY
+
+  hmc-cpu:
+    # Preserve the existing check name and require every calculation group.
+    needs: hmc-tests
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all HMC calculation groups
+        env:
+          HMC_TEST_RESULT: ${{ needs.hmc-tests.result }}
+        run: |
+          if [ "$HMC_TEST_RESULT" != success ]; then
+            echo "HMC calculation groups did not all pass: $HMC_TEST_RESULT" >&2
+            exit 1
+          fi
