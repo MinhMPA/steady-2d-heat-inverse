@@ -75,5 +75,8 @@ write access.
 `/codex review` belongs to this workflow. The separate Codex GitHub integration
 uses `@codex review`; enabling this workflow does not configure that integration.
 
+[Claude reviews](CLAUDE_REVIEW.md) are also available through `/claude review`
+or `@claude review`, using a separate Anthropic credential.
+
 References: [OpenAI Codex action](https://github.com/openai/codex-action) and
 [action security guidance](https://github.com/openai/codex-action/blob/main/docs/security.md).
