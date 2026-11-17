@@ -31,6 +31,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
+      # Hosted runners may expose unusable RDMA devices; use local/TCP MPI.
+      OMPI_MCA_pml: "ob1"
+      OMPI_MCA_btl: "self,sm,tcp"
       S2DHI_HMC_QUALIFICATION: "1"
       JAX_ENABLE_X64: "true"
       JAX_PLATFORMS: "cpu"
@@ -111,7 +114,7 @@ jobs:
           print(require_sampling_environment())
           for name in ("numpy", "scipy", "petsc4py", "fenics-dolfinx", "h5py", "arviz-stats", "nbclient", "nbformat", "ipykernel"):
               print(name, version(name))
-          for name in ("CC", "CXX", "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "CPATH", "LIBRARY_PATH", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+          for name in ("CC", "CXX", "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "CPATH", "LIBRARY_PATH", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMPI_MCA_pml", "OMPI_MCA_btl"):
               print(name, os.environ.get(name))
           import arviz_stats
           PY

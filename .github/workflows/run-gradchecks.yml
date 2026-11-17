@@ -25,6 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
+      # Hosted runners may expose unusable RDMA devices; use local/TCP MPI.
+      OMPI_MCA_pml: "ob1"
+      OMPI_MCA_btl: "self,sm,tcp"
       OMP_NUM_THREADS: "8"
       OPENBLAS_NUM_THREADS: "8"
       MKL_NUM_THREADS: "8"
