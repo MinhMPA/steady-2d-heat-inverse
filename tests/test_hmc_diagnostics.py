@@ -503,13 +503,13 @@ def test_real_fixed_boundary_predictions_have_zero_sampling_error(cell, bottom):
             )
             readings.append(sensors[0])
     assert fixed[0]
-    # These real predictions reproduce the measured interpolation roundoff.
-    assert np.ptp(readings) > 0
+    # Boundary interpolation may be exact or show platform-dependent roundoff.
+    assert np.isfinite(readings).all()
     values = np.tile(np.asarray(readings)[None, :, None], (4, 1, 1))
     stats = _quantity_statistics(None, values, [0.05, 0.95], fixed[:1])
     assert stats["mean_mcse"][0] == 0
     assert np.array_equal(stats["quantile_mcse"][:, 0], [0.0, 0.0])
-    assert not stats["constant"][0]  # Raw numerical evidence must remain visible.
+    assert stats["constant"][0] == (min(readings) == max(readings))
     assert stats["raw_minimum"][0] == min(readings)
     assert stats["raw_maximum"][0] == max(readings)
     from posterior_diagnostics import _fixed_sensor_evidence
@@ -521,7 +521,35 @@ def test_real_fixed_boundary_predictions_have_zero_sampling_error(cell, bottom):
     assert evidence["maximum_absolute_residual"] == max(
         abs(np.asarray(readings) - bottom)
     )
-    assert evidence["status"] == "unverified_discrepancy"
+    expected_status = (
+        "exact_agreement"
+        if np.all(np.asarray(readings) == bottom)
+        else "unverified_discrepancy"
+    )
+    assert evidence["status"] == expected_status
+
+
+@pytest.mark.parametrize("roundoff", [False, True], ids=["exact", "roundoff"])
+def test_fixed_boundary_roundoff_remains_separate_from_sampling_error(roundoff):
+    from posterior_diagnostics import _fixed_sensor_evidence
+
+    record = make_record(nmesh=1)
+    readings = np.full(4, 300.0)
+    if roundoff:
+        readings[1] = np.nextafter(300.0, np.inf)
+        readings[2] = np.nextafter(300.0, -np.inf)
+    values = np.tile(readings[None, :, None], (4, 1, 1))
+    stats = _quantity_statistics(None, values, [0.05, 0.95], np.array([True]))
+    assert stats["mean_mcse"][0] == 0.0
+    assert np.array_equal(stats["quantile_mcse"][:, 0], [0.0, 0.0])
+    assert stats["constant"][0] == (not roundoff)
+    assert stats["raw_minimum"][0] == min(readings)
+    assert stats["raw_maximum"][0] == max(readings)
+    evidence = _fixed_sensor_evidence(record, stats, np.array([300.0]))[0]
+    assert evidence["maximum_absolute_residual"] == max(abs(readings - 300.0))
+    assert evidence["status"] == (
+        "unverified_discrepancy" if roundoff else "exact_agreement"
+    )
 
 
 def test_substantive_fixed_sensor_disagreement_is_separate_unverified_evidence(

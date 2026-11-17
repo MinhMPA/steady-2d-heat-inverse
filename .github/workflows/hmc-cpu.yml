@@ -41,13 +41,20 @@ jobs:
       MPLBACKEND: "Agg"
     defaults:
       run:
-        shell: bash -l {0}
+        shell: bash -el -o pipefail {0}
     steps:
       - uses: actions/checkout@v4
       - uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: environment.yml
           environment-name: s2dhi-hmc
+          # Match the native libraries qualified in constraints/hmc-cpu-py312.txt.
+          create-args: >-
+            numpy=2.5.2
+            scipy=1.18.0
+            petsc4py=3.25.4
+            fenics-dolfinx=0.11.0
+            h5py=3.16.0
           cache-environment: true
           cache-downloads: true
       - name: Check native numerical environment before optional resolution
