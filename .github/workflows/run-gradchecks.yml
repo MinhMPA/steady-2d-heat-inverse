@@ -39,12 +39,12 @@ jobs:
           cache-downloads: true
 
       - name: Install package (editable) + dev extras
-        shell: bash -l {0}
+        shell: bash -el -o pipefail {0}
         run: pip install -e ".[dev]"
 
       - name: Run test suite
-        shell: bash -l {0}
-        run: pytest -q --maxfail=1 --durations=10
+        shell: bash -el -o pipefail {0}
+        run: python -u -X faulthandler -m pytest -v -s --maxfail=1 --durations=10
 
   docs:
     name: Build documentation
