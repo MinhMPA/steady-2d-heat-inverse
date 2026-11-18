@@ -80,6 +80,7 @@ napoleon_numpy_docstring = True
 # -- HTML output -------------------------------------------------------------
 
 html_theme = "sphinx_rtd_theme"
+html_logo = "../assets/heat-inverse-logo.svg"
 html_static_path = ["_static"]
 html_css_files = ["responsive.css"]
 html_theme_options = {

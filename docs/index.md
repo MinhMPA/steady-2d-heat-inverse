@@ -55,6 +55,27 @@ supplies the finite-element discretization; [PETSc](https://petsc.org/)
 supplies the heat and adjoint linear solves and legacy
 TAO optimization. Sampling uses one MPI rank in its qualified environment.
 
+## Forward and inverse problems
+
+```{figure} ../assets/forward-problem.svg
+:alt: Known conductivity mapped to a predicted temperature field by the heat equation
+:width: 100%
+
+Predict the temperature from the conductivity.
+```
+
+```{figure} ../assets/inverse-problem.svg
+:alt: Noisy temperature measurements mapped to a conductivity reconstruction by adjoint-based TAO optimization
+:width: 100%
+
+Recover the conductivity from temperature measurements: the legacy optimization route.
+```
+
+The [forward model](theory.md#forward-problem) supplies the temperature prediction
+for both optimization and sampling. The inverse illustration shows the
+[legacy TAO reconstruction](theory.md#legacy-reconstruction-objective); the
+posterior example above also quantifies uncertainty through sampling.
+
 ```{toctree}
 :maxdepth: 2
 :caption: Contents

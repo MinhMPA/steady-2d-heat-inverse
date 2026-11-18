@@ -1,3 +1,5 @@
+<img src="assets/heat-inverse-logo.svg" alt="Steady 2D Heat Inverse logo" width="96" align="right">
+
 # steady-2d-heat-inverse
 
 [![Documentation Status](https://readthedocs.org/projects/steady-2d-heat-inverse/badge/?version=latest)](https://steady-2d-heat-inverse.readthedocs.io/en/latest/)
@@ -69,6 +71,11 @@ or test continuum accuracy. See the [evidence and provenance](docs/validation/hm
 1. **Forward** — solve the 2D steady-state heat equation `-∇·(h∇T) = q` on `[0,1]²` with
    P1 Lagrange elements (DOLFINx): Dirichlet `T(y=0) = 300 K`, insulated (zero-flux
    Neumann) on the other three walls.
+
+   [![Known conductivity mapped to a predicted temperature field by the heat equation](assets/forward-problem.svg)](assets/forward-problem.svg)
+
+   *Predict the temperature from the conductivity.*
+
 2. **Inverse** — recover `h(x,y)` by minimizing
 
    ```
@@ -77,6 +84,10 @@ or test continuum accuracy. See the [evidence and provenance](docs/validation/hm
 
    subject to the PDE and the positivity bound `h ≥ h_min`. The `α` term is Tikhonov (H¹)
    regularization enforcing smoothness of `h`.
+
+   [![Noisy temperature measurements mapped to a conductivity reconstruction by adjoint-based TAO optimization](assets/inverse-problem.svg)](assets/inverse-problem.svg)
+
+   *Recover the conductivity from temperature measurements: the legacy optimization route.*
 
 The adjoint state `λ` solves `−∇·(h∇λ) = (T − T_obs)/σ²` with `λ(y=0) = 0`, giving
 `dJ/dh = −∇T·∇λ + α∇h·∇v`. The operator is self-adjoint, so the adjoint left-hand side is
