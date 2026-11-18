@@ -148,7 +148,7 @@ new output directory.
 The measured macOS setup also records `FI_PROVIDER`, `FI_TCP_IFACE` and
 `FI_SOCKETS_IFACE`, including unset values: changing them prevents append. The
 continuation identity also records effective local/user DOLFINx and FFCx
-settings and the PETSc options database. Compiler settings are bound when the
+settings and the PETSc options database. Effective JIT/FFCx options are bound when the
 inverse problem is constructed; changing them requires a new problem. External
 options under private heat/adjoint prefixes are rejected: declare permitted
 settings through `HeatNumerics`. These checks correct the omissions in the

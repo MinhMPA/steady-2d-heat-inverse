@@ -73,8 +73,8 @@ optimizing and sampling preserve its current conductivity and temperature.
 `numerics_id` separately labels recorded numerical settings. Neither includes
 the caller's present trial conductivity or temperature. The saved physical
 record additionally binds effective form-compiler options, the PETSc options
-database, numerical sources and native libraries to continuation. Compiler
-settings are frozen at construction; changed settings require a new problem.
+database, numerical sources and native libraries to continuation. Effective JIT/FFCx
+options are frozen at construction; changed settings require a new problem.
 Private heat/adjoint options must be declared through `HeatNumerics`.
 
 | Call or result | Meaning |
