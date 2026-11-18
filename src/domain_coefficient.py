@@ -22,7 +22,9 @@ from plotting_utils import plot_scalar_mesh
 ScalarLike = Union[int, float]
 CallableLike = Callable[[np.ndarray], np.ndarray]
 TableLike = Union[np.ndarray, pd.DataFrame]
-UserInput = Union[ScalarLike, fem.Constant, fem.Expression, CallableLike, TableLike]
+UserInput = Union[
+    ScalarLike, fem.Constant, fem.Expression, fem.Function, CallableLike, TableLike
+]
 
 
 class BaseDomainCoefficient(ABC):
@@ -67,6 +69,18 @@ class BaseDomainCoefficient(ABC):
             - fem.Constant for scalar and fem.Constant inputs
             - fem.Function for callable or fem.Expression inputs, interpolated onto the mesh
         """
+        # A supplied nodal coefficient must already belong to this scalar space.
+        if isinstance(self._user_input, fem.Function):
+            if (
+                self._user_input.function_space != self._V
+                or self._V.mesh is not self._mesh
+                or self._V.element.value_shape.size != 0
+            ):
+                raise ValueError(
+                    "A coefficient fem.Function must match the scalar mesh and function space."
+                )
+            self.constant = False
+            return self._user_input
         # Handle scalar (int,float) or fem.Constant inputs
         if isinstance(self._user_input, fem.Constant):
             self.constant = True

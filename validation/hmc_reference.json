@@ -1,0 +1,37 @@
+{
+  "inference_meshes": [
+    16,
+    32,
+    64
+  ],
+  "cell_type": "quadrilateral",
+  "source": 1.0,
+  "bottom_temperature": 300.0,
+  "sigma": 0.001,
+  "mu": 0.6931471805599453,
+  "kappa": 2.0,
+  "tau": 1.0,
+  "h_ref": 1.0,
+  "conductivity_units": "declared conductivity units",
+  "seed": 20261026,
+  "initial_step_size": 0.00065,
+  "step_size_bounds": [
+    1e-06,
+    0.0013
+  ],
+  "optimizer_maxiter": 5000,
+  "optimizer_gtol": 1e-06,
+  "optimizer_ftol": 1e-12,
+  "minimum_tolerance_index": 0,
+  "pilot_output": "runs/hmc-pilot",
+  "fine_truth_meshes": [
+    128,
+    256
+  ],
+  "truth_noise_seeds": [
+    20261026,
+    20261027
+  ],
+  "block_resamples": 500,
+  "block_minimum_blocks": 8
+}

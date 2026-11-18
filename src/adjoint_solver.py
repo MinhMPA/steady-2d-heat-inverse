@@ -13,10 +13,9 @@ import ufl
 
 # dolfinx imports
 from dolfinx import fem, mesh
-from dolfinx.fem.petsc import LinearProblem
 
 # local imports
-from forward_solver import SteadyHeat2DForwardSolver
+from forward_solver import SteadyHeat2DForwardSolver, _linear_problem
 
 
 class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
@@ -51,7 +50,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         DBC_value: float = 0.0,
         petsc_opts: dict | None = None,
     ):
-        """
+        r"""
         Parameters
         ----------
         forward         : forward solver instance, providing mesh, V, bottom_dofs, h, q, T.
@@ -60,6 +59,8 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         DBC_value       : Dirichlet BC for \lambda_L at the bottom, i.e. \lambda_L(y=0)=\lambda_{L,0}.
         petsc_opts      : Dictionary of PETSc options, copied from forward solver if None.
         """
+        self._forward = forward
+        self._forward_generation = forward.coefficient_generation
         # Copy forward solver attributes:
         ## mesh, function space, botom_dofs;
         self.mesh, self.V, self.bottom_dofs = (
@@ -72,7 +73,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         ## temperature;
         self.T = forward.T
         ## PETSc options.
-        self.petsc_opts = forward.petsc_opts
+        self.petsc_opts = dict(forward.petsc_opts)
         # Read observed temperature, noise level and ampltidue of regularization term.
         self.T_obs = fem.Function(self.V, name="ObservedTemperature")
         if isinstance(T_obs, fem.Function):
@@ -100,11 +101,12 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
 
         # Specify options for the PETSc KSP linear system solver.
         ## Inherit PETSc options from forward solver if none provided
-        opts = petsc_opts if petsc_opts is not None else self.petsc_opts
+        opts = self.petsc_opts | (petsc_opts or {})
+        self.petsc_opts = opts
 
         # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs.
         self.lambda_L = fem.Function(self.V, name="AdjointState")
-        self.problem = LinearProblem(
+        self.problem = _linear_problem(
             self.a,
             self.L,
             u=self.lambda_L,
@@ -112,6 +114,14 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
             petsc_options_prefix="s2dhi_adj_",
             petsc_options=opts,
         )
+        self.total_ksp_iterations = 0
+        self.total_linear_solves = 0
+
+    def _check_coefficient_generation(self):
+        if self._forward.coefficient_generation != self._forward_generation:
+            raise RuntimeError(
+                "The heat conductivity coefficient was replaced. Reconstruct the legacy adjoint with the current forward model."
+            )
 
     def solve(self) -> fem.Function:
         """
@@ -121,7 +131,13 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         -------
         lambda_L : the Lagrangian multiplier function, aka adjoint state vector.
         """
-        self.problem.solve()
+        self._check_coefficient_generation()
+        self.total_linear_solves += 1
+        self.problem.solver.setIterationNumber(0)
+        try:
+            self.problem.solve()
+        finally:
+            self.total_ksp_iterations += int(self.problem.solver.getIterationNumber())
         return self.lambda_L
 
     def assemble_gradient(self) -> PETSc.Vec:
@@ -132,6 +148,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         -------
         array-like : the assembled gradient vector dJ/dh.
         """
+        self._check_coefficient_generation()
         # Total derivative of the objective function J with respect to h:
         ## dJ/dh = (\lambda^T)\cdot g[T(h), h] + \partial J / partial h,
         ##       = -\nablaT\cdot\nabla\lambda + \alpha\lapl h.

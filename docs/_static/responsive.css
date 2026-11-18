@@ -1,0 +1,68 @@
+/* Keep the project mark compact above the documentation navigation. */
+.wy-side-nav-search > a img.logo {
+  width: 80px;
+  height: auto;
+}
+
+/* Keep physical equations and reference material usable on small screens. */
+@media screen and (max-width: 767px) {
+  .rst-content div.math {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: .3rem;
+  }
+  .rst-content div.math mjx-container[display="true"] {
+    display: block;
+    width: max-content;
+    min-width: 100%;
+  }
+  .rst-content p mjx-container {
+    display: inline-block;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    vertical-align: middle;
+  }
+  .rst-content code.literal,
+  .rst-content code.literal .pre {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .rst-content dl.py {
+    max-width: 100%;
+  }
+  .rst-content dl.py dt.sig {
+    display: block;
+    box-sizing: border-box;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .rst-content dl.py dd {
+    margin-left: 12px;
+    overflow-wrap: anywhere;
+  }
+  html.writer-html5 .rst-content dl.field-list {
+    display: block;
+  }
+  html.writer-html5 .rst-content dl.field-list > dt {
+    float: none;
+    width: auto;
+    margin-bottom: .3rem;
+  }
+  html.writer-html5 .rst-content dl.field-list > dd {
+    margin-left: 0;
+  }
+  .rst-content .wy-table-responsive {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  #evidence-matrix table {
+    min-width: 720px;
+  }
+  #conductivity-posterior-interfaces table {
+    min-width: 560px;
+  }
+}

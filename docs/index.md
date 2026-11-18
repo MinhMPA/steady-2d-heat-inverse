@@ -1,22 +1,80 @@
 # steady-2d-heat-inverse
 
-Infer the spatially-varying thermal conductivity $h(x,y)$ of a 2D unit square from a
-noisy steady-state temperature field, using a **discrete adjoint** gradient driven by
-**PETSc TAO** bound-constrained optimization.
+Recover a spatially varying thermal conductivity `h(x,y)` from noisy steady-state
+temperature measurements, using the heat equation as the physical model.
 
-The package is built on [FEniCSx](https://fenicsproject.org/) (DOLFINx / UFL / basix) for
-the finite-element discretization and on [PETSc](https://petsc.org/) for both the linear
-solves (KSP) and the optimization (TAO). Every solver is MPI-aware.
+## Optimization and sampling
 
-## What it does
+The conductivity posterior combines fixed physical thermometers, independent
+Gaussian measurement errors and a proper Gaussian prior on log conductivity.
+Two complementary estimates describe this same posterior:
 
-1. **Forward problem** — solve $-\nabla\cdot(h\nabla T) = q$ on $[0,1]^2$ with P1 Lagrange
-   elements, a Dirichlet condition on the bottom wall and insulated (zero-flux Neumann)
-   conditions elsewhere. Optionally inject Gaussian sensor noise to synthesize an
-   observation $T_{\rm obs}$.
-2. **Inverse problem** — recover $h(x,y)$ by minimizing a regularized least-squares
-   misfit subject to the PDE and a positivity bound, using an adjoint gradient that costs
-   ~2 linear solves regardless of the number of degrees of freedom.
+- **Optimization** finds a mode in log conductivity and maps it to a positive
+  conductivity field.
+- **Sampling** explores conductivity fields drawn from the posterior, giving a
+  mean reconstruction and uncertainty at each location.
+
+Both methods use the **discrete adjoint method** for the same data-misfit gradient.
+One forward heat solve and one adjoint solve give the gradient with respect to the
+entire conductivity field, independently of its number of unknowns. Sampling uses
+**Hamiltonian Monte Carlo (HMC)**: auxiliary momenta and adjoint gradients guide
+trajectories through the posterior. The custom split-Hamiltonian calculation uses
+BlackJAX components; each trajectory requires many gradient evaluations.
+
+Start with the [common-posterior tutorial](hmc.md),
+[saved fields and continuation](hmc-results.md), and
+[current scientific evidence](validation/hmc-status.md).
+The [legacy TAO example](#legacy-tao-example) below retains its original,
+different regularized objective.
+
+The optimization and sampling interfaces are present on the
+`docs/hmc-inference-guide` implementation branch. A local documentation build
+does not establish their availability on `master` or the live Read the Docs site.
+
+```{figure} _static/figures/conductivity-inference.svg
+:alt: Conductivity recovered by optimization and sampling, with truth and pointwise credible intervals
+
+Conductivity recovered by optimization and sampling. Shading shows pointwise
+68% and 95% credible intervals.
+```
+
+[Open full-size figure](_static/figures/conductivity-inference.svg).
+
+Two central slices show the physical-conductivity posterior mean (blue), the
+log-conductivity mode candidate (orange), and the generating truth. Darker
+shading marks 68% and lighter shading 95%. This example uses four chains of
+1,024 retained draws on mesh 32, with truth generated on mesh 16; see the
+[pointwise interpretation and qualification](validation/hmc-status.md#chain-convergence).
+Download the {download}`plotted values <_static/figures/conductivity-slices.csv>`,
+{download}`calculation record <_static/figures/conductivity-slices.json>` or
+{download}`redrawing script <../scripts/plot_inference_example.py>`.
+
+The heat equation is solved on the unit square with a fixed bottom-wall
+temperature and insulated remaining walls. [FEniCSx](https://fenicsproject.org/)
+supplies the finite-element discretization; [PETSc](https://petsc.org/)
+supplies the heat and adjoint linear solves and legacy
+TAO optimization. Sampling uses one MPI rank in its qualified environment.
+
+## Forward and inverse problems
+
+```{figure} ../assets/forward-problem.svg
+:alt: Known conductivity mapped to a predicted temperature field by the heat equation
+:width: 100%
+
+Predict the temperature from the conductivity.
+```
+
+```{figure} ../assets/inverse-problem.svg
+:alt: Noisy temperature measurements mapped to a conductivity reconstruction by adjoint-based TAO optimization
+:width: 100%
+
+Recover the conductivity from temperature measurements: the legacy optimization route.
+```
+
+The [forward model](theory.md#forward-problem) supplies the temperature prediction
+for both optimization and sampling. The inverse illustration shows the
+[legacy TAO reconstruction](theory.md#legacy-reconstruction-objective); the
+posterior example above also quantifies uncertainty through sampling.
 
 ```{toctree}
 :maxdepth: 2
@@ -26,10 +84,30 @@ installation
 theory
 usage
 testing
+hmc
+hmc-results
+validation/hmc-status
+validation/hmc-numerics
+validation/hmc-mesh-study
+validation/hmc-mpi-shutdown
 api/index
 ```
 
-## Quick example
+```{toctree}
+:maxdepth: 1
+:caption: Scientific decisions
+
+adr/0001-share-the-conductivity-posterior
+adr/0002-allow-priors-for-sharp-conductivity
+adr/0003-preserve-the-supplied-physical-state
+```
+
+## Legacy TAO example
+
+This original reconstruction minimizes a temperature-field least-squares misfit
+with an H¹ smoothness penalty and a positivity bound. Its objective differs from
+the fixed-thermometer posterior above. See [legacy usage](usage.md) and
+[theory](theory.md#legacy-reconstruction-objective) for its retained conventions.
 
 ```python
 from forward_solver import SteadyHeat2DForwardSolver

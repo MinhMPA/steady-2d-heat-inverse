@@ -17,6 +17,10 @@ from dolfinx import fem
 # local imports
 from forward_solver import SteadyHeat2DForwardSolver
 from adjoint_solver import SteadyHeat2DAdjointSolver
+from ksp_tolerance_controller import (
+    AdaptiveKSPRTOLSettings,
+    SharedKSPToleranceController,
+)
 
 
 class SteadyHeat2DTAOSolver:
@@ -42,6 +46,7 @@ class SteadyHeat2DTAOSolver:
         gttol: float = 1e-3,
         mit: int = 1000,
         monitor: Callable | None = None,
+        adaptive_ksp_rtol: dict | None = None,
         options: bool = False,
         verbose: int = 0,
     ):
@@ -49,7 +54,9 @@ class SteadyHeat2DTAOSolver:
         Parameters
         ----------
         forward          : forward solver, SteadyHeat2DForwardSolver instance, must expose h, T, and solve()
-        adjoint          : adjoint solver, SteadyHeat2DAdjointSolver instance, must expose alpha, sigma, and solve(), assemble_gradient()
+        adjoint : SteadyHeat2DAdjointSolver
+            Original reconstruction adjoint, providing ``alpha``, ``sigma2``,
+            ``solve()`` and ``assemble_gradient()``.
         h_min            : positive lower bound for h
         h_max            : positive upper bound for h
         tao_type         : TAO solver type
@@ -57,17 +64,25 @@ class SteadyHeat2DTAOSolver:
         use_logh         : whether to optimize in log(h)
         gatol            : gradient absolute tolerance.
         grtol            : gradient relative tolerance.
+        gttol            : gradient norm tolerance.
         mit              : maximum number of iterations.
         monitor          : the monitor function to track the optimization progress.
+        adaptive_ksp_rtol: optional adaptive shared KSP tolerance settings for
+                           forward and adjoint solves. Expected keys match
+                           AdaptiveKSPRTOLSettings.
         options          : whether and which options to configure the solver, refer to https://petsc.org/release/manualpages/Tao/TaoSetFromOptions for details.
         verbose          : verbosity level, 0-3
         """
+        self._forward_generation = forward.coefficient_generation
         self.fwd = forward
         self.adj = adjoint
         self.alpha = adjoint.alpha
         self.sigma2 = adjoint.sigma2
         self.use_logh = use_logh
         self.verbose = verbose
+        self._user_monitor = monitor
+        self.ksp_rtol_controller = None
+
         # TAO optimizes the DOF vector of h, so h must carry DOFs. A scalar or
         # fem.Constant h cannot be promoted here: the forward and adjoint UFL forms
         # already reference the original object by handle.
@@ -124,9 +139,20 @@ class SteadyHeat2DTAOSolver:
         # Set the maximum number of iterations
         self.tao.setMaximumIterations(mit)
 
+        if adaptive_ksp_rtol is not None:
+            settings = AdaptiveKSPRTOLSettings(**adaptive_ksp_rtol)
+            self.ksp_rtol_controller = SharedKSPToleranceController(
+                (self.fwd, self.adj), settings=settings
+            )
+            if self.verbose >= 1 and MPI.COMM_WORLD.rank == 0:
+                print(
+                    "Adaptive shared forward/adjoint ksp_rtol starts at"
+                    f" {self.ksp_rtol_controller.current_rtol:.3e}."
+                )
+
         ## OPTIONAL: Monitor optimization progress
-        if monitor is not None:
-            self.tao.setMonitor(monitor)
+        if self._user_monitor is not None or self.ksp_rtol_controller is not None:
+            self.tao.setMonitor(self._monitor)
         ## OPTIONAL: Command-line options
         if options:
             self.tao.setFromOptions()
@@ -138,6 +164,13 @@ class SteadyHeat2DTAOSolver:
             print("Line search algorithm:", ls.getType())
         if options:
             ls.setFromOptions()
+
+    def _check_coefficient_generation(self):
+        if self.fwd.coefficient_generation != self._forward_generation:
+            raise RuntimeError(
+                "The heat conductivity coefficient was replaced. Reconstruct the legacy TAO solver and adjoint with the current forward model."
+            )
+        self.adj._check_coefficient_generation()
 
     # Set bounds on m = log(h)
     def _set_tao_bounds_on_logh(self, *, h_min: float | None, h_max: float | None):
@@ -214,6 +247,7 @@ class SteadyHeat2DTAOSolver:
         -------
         J: the objective integrated over the domain.
         """
+        self._check_coefficient_generation()
         # Copy the current X to the forward and adjoint solvers' thermal conductivity h(x,y)
         X.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
 
@@ -259,6 +293,19 @@ class SteadyHeat2DTAOSolver:
                 print("Current |G| =", G.norm())
         return J
 
+    def _monitor(self, tao):
+        if self.ksp_rtol_controller is not None:
+            status = tao.getSolutionStatus()
+            tightened = self.ksp_rtol_controller.observe_tao_status(status)
+            if tightened and self.verbose >= 1 and MPI.COMM_WORLD.rank == 0:
+                its, *_rest = status
+                print(
+                    f"[TAO] tightened shared ksp_rtol to "
+                    f"{self.ksp_rtol_controller.current_rtol:.3e} at iter {its}."
+                )
+        if self._user_monitor is not None:
+            self._user_monitor(tao)
+
     # Driver method to solve the optimization problem with the TAO solver
     def solve(self):
         """
@@ -268,6 +315,7 @@ class SteadyHeat2DTAOSolver:
         -------
         numpy.ndarray : the solution vector for thermal conductivity h(x,y).
         """
+        self._check_coefficient_generation()
         self.tao.solve(x=self.X0)
         if self.verbose > 0:
             print("Convergence Reason:", self.tao.getConvergedReason())
