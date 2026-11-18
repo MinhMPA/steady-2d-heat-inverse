@@ -1,6 +1,7 @@
-<img src="assets/heat-inverse-logo.svg" alt="Steady 2D Heat Inverse logo" width="96" align="right">
-
-# steady-2d-heat-inverse
+<p align="center">
+  <img src="assets/heat-inverse-logo.svg" alt="Steady 2D Heat Inverse logo" width="96" height="96">
+</p>
+<h1 align="center">steady-2d-heat-inverse</h1>
 
 [![Documentation Status](https://readthedocs.org/projects/steady-2d-heat-inverse/badge/?version=latest)](https://steady-2d-heat-inverse.readthedocs.io/en/latest/)
 
@@ -33,9 +34,9 @@ Start with the [common-posterior tutorial](docs/hmc.md),
 The [legacy TAO example](#legacy-tao-example) below retains its original,
 different regularized objective.
 
-**Availability:** the optimization and sampling interfaces are present on this
-`docs/hmc-inference-guide` implementation branch. This page does not establish
-their availability on `master` or in the live Read the Docs site.
+**Version 0.2.0** adds adjoint-driven conductivity sampling alongside optimization.
+See the [release notes](docs/release-notes.md) for installation, validation and
+scientific limits.
 
 ![Conductivity recovered by optimization and sampling, with truth and pointwise credible intervals](docs/_static/figures/conductivity-inference.svg)
 

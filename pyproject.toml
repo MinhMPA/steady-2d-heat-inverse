@@ -1,7 +1,7 @@
 [project]
 name = "steady-2d-heat-inverse"
-version = "0.1"
-description = "2D steady heat inverse problem with discrete adjoint and PETSc TAO optimization"
+version = "0.2.0"
+description = "2D steady heat inverse problem with discrete-adjoint optimization and Hamiltonian Monte Carlo sampling"
 requires-python = ">=3.11"
 
 # Minimal dependencies, beyond those listed in environment.yaml

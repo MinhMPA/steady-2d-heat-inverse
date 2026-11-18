@@ -1,5 +1,10 @@
 # Conductivity inference: evidence as of 16 November 2026
 
+**Release 0.2.0:** sampling is now included on `master`. The
+[release notes](../release-notes.md) summarize the subsequent corrections and
+completed numerical checks. The scientific study results below remain a dated
+snapshot.
+
 **Source corrections, 17 November:** the defects described in this historical
 snapshot have been corrected in PR #2. The
 {download}`correction review <../superpowers/reviews/2026-11-17-hmc-corrections.md>`

@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.abspath("../src"))
 project = "steady-2d-heat-inverse"
 author = "Minh Nguyen"
 copyright = "2026, Minh Nguyen"
-release = "0.1"
-version = "0.1"
+release = "0.2.0"
+version = "0.2"
 
 # -- General configuration ---------------------------------------------------
 

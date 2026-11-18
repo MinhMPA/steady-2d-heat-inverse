@@ -27,9 +27,9 @@ Start with the [common-posterior tutorial](hmc.md),
 The [legacy TAO example](#legacy-tao-example) below retains its original,
 different regularized objective.
 
-The optimization and sampling interfaces are present on the
-`docs/hmc-inference-guide` implementation branch. A local documentation build
-does not establish their availability on `master` or the live Read the Docs site.
+**Version 0.2.0** adds adjoint-driven conductivity sampling alongside optimization.
+See the [release notes](release-notes.md) for installation, validation and
+scientific limits.
 
 ```{figure} _static/figures/conductivity-inference.svg
 :alt: Conductivity recovered by optimization and sampling, with truth and pointwise credible intervals
@@ -81,6 +81,7 @@ posterior example above also quantifies uncertainty through sampling.
 :caption: Contents
 
 installation
+release-notes
 theory
 usage
 testing

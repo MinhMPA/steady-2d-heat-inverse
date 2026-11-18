@@ -1,11 +1,16 @@
 # Installation
 
-For conductivity sampling, use the source tree containing this guide and
-`src/heat_inference.py` (the `docs/hmc-inference-guide` branch). The reviewed
-sampling source is `3df71cacf650f94d77c54fc0dbcf0f916825e199`. No public
-branch download or `master` installation is assumed here; the commands below
-run from an already available checkout. See the [dated evidence](validation/hmc-status.md)
-for the distinction between local verification and publication.
+Version 0.2.0 includes both optimization and conductivity sampling. Start from
+the tagged source release, then follow the environment instructions below:
+
+```bash
+git clone --branch v0.2.0 https://github.com/MinhMPA/steady-2d-heat-inverse.git
+cd steady-2d-heat-inverse
+```
+
+Sampling uses the [dedicated CPU posterior environment](#separate-cpu-posterior-environment).
+See the [release notes](release-notes.md) for the verified calculation settings
+and the [dated evidence](validation/hmc-status.md) for the scientific studies.
 
 ## Requirements
 
@@ -88,12 +93,16 @@ sphinx-build -W -b html docs docs/_build/html
 Preserve the original reconstruction environment. The measured sampling
 qualification uses CPython 3.12, eager CPU float64 and one MPI rank, with BlackJAX 1.7.1, JAX/JAXlib 0.11.2
 and ArviZ Stats 1.3.3. The base project accepts Python 3.11, but that is not the
-qualified sampling environment. Start from `environment.yml` in a separate environment, or clone the verified original
-`s2dhi-011` environment as `s2dhi-hmc`. Resolve with `constraints/hmc-cpu-py312.txt` and inspect a dry-run report
-before installation:
+qualified sampling environment. Create a separate environment with the native
+dependencies from `environment.yml` and the exact numerical versions used in the
+Linux HMC checks. Then resolve the optional packages with
+`constraints/hmc-cpu-py312.txt` and inspect a dry-run report before installation:
 
 ```bash
-conda create -n s2dhi-hmc --clone s2dhi-011
+conda create -n s2dhi-hmc --override-channels -c conda-forge --strict-channel-priority \
+  python=3.12 numpy=2.5.2 scipy=1.18.0 pandas=2 mpi4py=4 \
+  petsc4py=3.25.4 fenics-basix=0.11 fenics-ufl=2026.1 \
+  fenics-dolfinx=0.11.0 h5py=3.16.0 jupyterlab pip
 conda activate s2dhi-hmc
 python -m pip install --dry-run --report /tmp/hmc-resolution.json \
   -c constraints/hmc-cpu-py312.txt -e ".[dev,sampling,diagnostics,validation]"
@@ -101,6 +110,10 @@ python -m pip install --dry-run --report /tmp/hmc-resolution.json \
 python -m pip install -c constraints/hmc-cpu-py312.txt \
   -e ".[dev,sampling,diagnostics,validation]"
 ```
+
+If you already have a verified environment with these versions, cloning it into
+`s2dhi-hmc` is an alternative to the first command. No pre-existing environment
+is needed for the fresh-install recipe above.
 
 The constrained numerical versions are NumPy 2.5.2, SciPy 1.18.0, petsc4py 3.25.4,
 DOLFINx 0.11.0 and h5py 3.16.0. If a fresh conda resolution differs, construct a
