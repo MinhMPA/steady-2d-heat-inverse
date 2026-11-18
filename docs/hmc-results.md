@@ -147,12 +147,14 @@ new output directory.
 
 The measured macOS setup also records `FI_PROVIDER`, `FI_TCP_IFACE` and
 `FI_SOCKETS_IFACE`, including unset values: changing them prevents append. The
-review nevertheless found that effective local/user DOLFINx and FFCx settings
-were omitted from numerical identity checks. **Matching recorded identities
-alone do not establish unchanged form-compiler settings.** Keep those settings
-unchanged independently; the [dated numerical evidence](validation/hmc-status.md#numerical-reproducibility)
-records this open defect. Archive inspection remains possible without the
-original MPI environment.
+continuation identity also records effective local/user DOLFINx and FFCx
+settings and the PETSc options database. Compiler settings are bound when the
+inverse problem is constructed; changing them requires a new problem. External
+options under private heat/adjoint prefixes are rejected: declare permitted
+settings through `HeatNumerics`. These checks correct the omissions in the
+[16 November review](validation/hmc-status.md#numerical-reproducibility).
+Older archives remain readable, but their earlier numerical identity cannot be
+used to append trajectories with the corrected sources.
 
 ## Preserve the history
 
@@ -164,27 +166,21 @@ does not preserve a reliable backup. Keep long histories outside notebook output
 cells and version-controlled documentation. Advisory status is not a substitute
 for the committed history or a fresh diagnostic report.
 
-The [16 November review limits](validation/hmc-status.md#numerical-reproducibility)
-also include continued admission following pilot-memory or SQLite-storage
-exhaustion. A failed calculation must be investigated; this guide does not treat
-those failure modes as repaired or authorize changes to an existing scientific
-archive.
+Pilot memory exhaustion and SQLite storage exhaustion stop admission of further
+calculations. The failure and existing committed history remain available for
+investigation; restarting does not silently replace that evidence.
 
 ## Recovery evidence and unfinished extensions
 
-Transactional history preservation does not guarantee safe admission of another
-calculation after resource exhaustion. The [validation guide](testing.md#open-recovery-and-notebook-limitations)
-separates existing continuation checks from the still-open pilot-memory,
-SQLite-storage, compiler-identity and closed-chain-memory findings. After an
-exhaustion failure, preserve the committed archive, inspect the cause and restore
-capacity before starting more work. No repair of these findings is claimed here.
+The [validation guide](testing.md#open-recovery-and-notebook-limitations)
+describes the regression checks for resource exhaustion, numerical identity
+and release of completed chain fields. After an exhaustion failure, preserve
+the committed archive, inspect the cause and restore capacity before starting
+more work.
 
 For mesh/prior studies, an extension request and an older `result.json` can
-coexist. The shared study report labels that situation `extension_in_progress`;
-the final notebook cell currently reads the old result directly and can display
-old figures as if current. It also searches `../runs`, which selects the wrong
-location when launched at the project root. The dated [notebook checks](testing.md#open-recovery-and-notebook-limitations)
-reproduce both defects. Avoid that final cell on scientific archives until its
-separate correction: select the intended study explicitly, inspect the
-shared generation-aware report, and label any previous figures as historical.
-An old qualified posterior does not qualify an unfinished extension.
+coexist. Both the shared study report and final notebook cell label that
+situation `extension_in_progress` and identify the requested generation.
+Historical results retain their history path and generation label. The notebook
+finds `runs` from the detected project root, whether started there or in
+`notebooks`. An old qualified posterior does not qualify an unfinished extension.

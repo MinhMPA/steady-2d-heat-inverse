@@ -121,6 +121,16 @@ class ConductivityPosterior:
             raise TypeError("numerics must be HeatNumerics.")
         if not isinstance(prefix, str) or not prefix:
             raise ValueError("A nonempty distinct PETSc prefix is required.")
+        overrides = sorted(
+            key for key in PETSc.Options().getAll()
+            if key.startswith((prefix + "heat_", prefix + "adjoint_"))
+        )
+        if overrides:
+            raise ValueError(
+                "External PETSc options cannot override a private posterior "
+                "calculation; declare its settings through HeatNumerics: "
+                + ", ".join(overrides)
+            )
         # Prior coordinates must describe this physical discretization, not just
         # an equal-sized vector on another mesh. Source/boundaries do not define
         # the conductivity prior's spatial binding.
@@ -389,10 +399,15 @@ class ConductivityPosterior:
             raise
 
     def close(self) -> None:
-        r"""Release owned heat/adjoint PETSc objects; repeated calls are harmless."""
+        r"""Release owned heat/adjoint fields, forms and PETSc objects."""
         if self._closed:
             return
         self._closed = True
+        # Compiled forms retain their coefficient Functions and function spaces.
+        # Drop these even when a caller keeps the closed posterior object.
+        self._gradient_form = None
+        self._adjoint = None
+        self._sensors = None
         for name in ("_adjoint_solver", "_adjoint_rhs", "_adjoint_solution"):
             obj = getattr(self, name, None)
             if obj is not None:

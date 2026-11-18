@@ -1108,6 +1108,10 @@ def run_numerical_pilot(config, output, *, data_path=None):
                     except (KeyboardInterrupt, InterruptedError):
                         raise
                     except Exception as exc:
+                        from hmc_sbc_worker import resource_exhausted
+
+                        if resource_exhausted(exc):
+                            raise
                         _failure(
                             output,
                             directory / f"spread-{trial_spread:g}-failure.json",

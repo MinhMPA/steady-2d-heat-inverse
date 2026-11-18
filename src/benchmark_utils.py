@@ -99,6 +99,12 @@ def run_benchmark_case(
             }
         )
 
+    # Count all trial evaluations, including rejected line-search steps. The
+    # TAO monitor runs only for outer iterations and cannot measure total work.
+    initial_forward_iterations = fwd.total_ksp_iterations
+    initial_adjoint_iterations = adj.total_ksp_iterations
+    initial_forward_solves = fwd.total_linear_solves
+    initial_adjoint_solves = adj.total_linear_solves
     tao = SteadyHeat2DTAOSolver(
         fwd,
         adj,
@@ -122,8 +128,8 @@ def run_benchmark_case(
     truth = _coefficient_array(fwd_truth.h.function, fwd.V)
     h_error_l2_rel = _relative_l2_error(solution, truth)
     status = tao.tao.getSolutionStatus()
-    total_forward_ksp_iterations = sum(row["forward_ksp_iterations"] for row in trace)
-    total_adjoint_ksp_iterations = sum(row["adjoint_ksp_iterations"] for row in trace)
+    total_forward_ksp_iterations = fwd.total_ksp_iterations - initial_forward_iterations
+    total_adjoint_ksp_iterations = adj.total_ksp_iterations - initial_adjoint_iterations
     summary = {
         "case_name": case.name,
         "method_name": method.name,
@@ -139,6 +145,8 @@ def run_benchmark_case(
         "final_ksp_rtol": float(fwd.get_ksp_rtol()),
         "total_forward_ksp_iterations": int(total_forward_ksp_iterations),
         "total_adjoint_ksp_iterations": int(total_adjoint_ksp_iterations),
+        "total_forward_solves": fwd.total_linear_solves - initial_forward_solves,
+        "total_adjoint_solves": adj.total_linear_solves - initial_adjoint_solves,
         "total_ksp_iterations": int(
             total_forward_ksp_iterations + total_adjoint_ksp_iterations
         ),

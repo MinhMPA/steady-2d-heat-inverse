@@ -138,36 +138,35 @@ correct study directory or analysis generation.
 
 ## Open recovery and notebook limitations
 
-The {download}`16 November review <superpowers/reviews/2026-11-16-hmc-review.md>` reproduced
-all six issues below. No corrective source change or passing regression for
-these specific findings is included in this documentation update. Existing
-checks of neighbouring behavior must not be cited as their repair.
+The {download}`16 November review <superpowers/reviews/2026-11-16-hmc-review.md>`
+reproduced six recovery and reporting defects. The subsequent
+{download}`correction review <superpowers/reviews/2026-11-17-hmc-corrections.md>`
+records their repairs and the related solver-option, work-count and Fourier
+checks. The heading retains its earlier link target.
 
-| Operational requirement | Current evidence and limitation | Required before claiming a correction |
-| --- | --- | --- |
-| Current versus historical extension reporting | Shared report identifies `extension_in_progress`; the final notebook cell still prints the previous generation as `sampled` and displays its old figures without historical labels. Reproduced again on 16 November. | Execute the actual final cell with an unfinished extension; require current status and explicit historical labels for every old figure. |
-| Same studies from root and `notebooks` | A manufactured project with one study yields one from `notebooks`, but zero from the project root and writes a report outside that project. Reproduced again on 16 November. | Both working directories must find the same study count and write only inside the selected project/study location. |
-| Stop after SQLite storage exhaustion | Review's real `SQLITE_FULL` reproduction admitted another replica. | Exercise SQLite page-limit exhaustion through the coordinator and assert no further admission. |
-| Stop after pilot memory exhaustion | Review's controlled `MemoryError` reproduction tried the next initial spread. | Assert that memory exhaustion stops admission while ordinary numerical failures remain recorded. |
-| Match effective compiler settings | Review found equal saved identities despite changed DOLFINx/FFCx settings. | Compare effective local/user options in fresh processes and reject a changed continuation identity. |
-| Release closed-chain memory | Review retained adjoint fields/forms until the enclosing inverse problem closed. | Check field/form lifetime after chain closure and repeated continuation. |
+| Operational requirement | Corrected behavior and regression |
+| --- | --- |
+| Current versus historical extension reporting | The actual notebook cell consumes the shared generation-aware record and reports an unfinished extension with its current generation. Old figures are confined to identified history records. |
+| Same studies from root and `notebooks` | Both working-directory checks find the manufactured study and write its report inside the detected project. |
+| Stop after SQLite storage exhaustion | Real SQLite page-limit exhaustion stops further replica admission, including after restarting the coordinator. |
+| Stop after pilot memory exhaustion | Memory, storage and SQLite resource failures stop the first spread attempt; ordinary numerical failures retain their separate treatment. |
+| Match effective compiler settings | Effective DOLFINx/FFCx options are saved and bound to problem construction. Changed settings reject append while read-only archive access remains available. |
+| Release closed-chain memory | Weak-reference checks show closed adjoint fields/forms are released even when the caller retains the closed chain handle. |
 
-A temporary acceptance check of both notebook working directories **failed as
-expected** on the unchanged source: four required conditions failed (root study
-count, report containment, current notebook extension label and historical
-figure labels). Display was intercepted only to avoid requiring manufactured
-PNG files; the actual final cell's study selection and evidence reads executed.
-The shared report's pending label and the `notebooks` study count passed. These
-are defect reproductions, not repaired-behavior regressions. Until the separate
-source corrections are reviewed, avoid the final report cell on scientific
-archives; inspect the explicitly selected study and its generation-aware report,
-and retain previous figures as historical evidence.
+The earlier failing acceptance fixture remains historical evidence in the dated
+review. Current regressions are in `tests/test_hmc_pr_review.py` and
+`tests/test_hmc_sbc_execution.py`. They include fresh-process compiler choices,
+private solver-option rejection, restoration of temporary PETSc options,
+requested legacy starting temperatures, and odd/even Fourier-plane comparisons.
+`tests/test_multifidelity_optimization.py` independently counts every trial solve,
+including unsuccessful assembly attempts. Adaptive tolerances are compared by
+measured accuracy and cost; a reduction in total work is not assumed.
 
 After memory or storage exhaustion, investigate and restore capacity before
-starting further calculations; do not rely on the coordinator to stop itself.
-Preserve committed histories. Close the enclosing inverse problem between
-repeated calculations, and independently preserve effective compiler settings
-when continuing. See [saved results and recovery](hmc-results.md).
+starting further calculations. Preserve committed histories and close owned
+calculation contexts. Continuation now compares the process-wide PETSc options
+database conservatively, so unrelated external option changes can also require
+a new calculation. See [saved results and recovery](hmc-results.md).
 
 ## Fine-truth mesh and prior studies
 

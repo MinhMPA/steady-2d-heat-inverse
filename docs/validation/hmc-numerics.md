@@ -9,10 +9,11 @@ finite-solve accuracy, calibration, mesh refinement and prior sensitivity.
 
 The historical measurements below retain their original source revisions and
 failed attempts. Their earlier calibration counts are not the current campaign.
-The 16 November review also found a continuation limitation: effective local/user
-form-compiler settings are absent from numerical identity. Until corrected and
-verified, matching recorded identities alone cannot certify unchanged numerical
-settings; see [numerical reproducibility](hmc-status.md#numerical-reproducibility).
+The 16 November review found omitted effective local/user form-compiler settings.
+The {download}`17 November correction <../superpowers/reviews/2026-11-17-hmc-corrections.md>`
+binds those settings to construction and continuation, constrains private solver
+options, and corrects resource admission and reporting. It does not recompute
+the historical scientific campaigns below.
 
 ## Historical numerical qualification
 

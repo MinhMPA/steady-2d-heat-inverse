@@ -1259,7 +1259,10 @@ def write_study_report(manifests, destination):
 
     Returns
     -------
-    None
+    tuple
+        ``(manifest_path, result)`` pairs used in the report, including history
+        and generation-aware incomplete states. Consumers must use these
+        records rather than rereading possibly superseded ``result.json`` files.
     """
     destination = Path(destination).resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1513,6 +1516,7 @@ def write_study_report(manifests, destination):
                         f"| {first_path.parent.name} | {second_path.parent.name} | {item['label']}: ESS/{unit} second / first | {interval} |"
                     )
     destination.write_text("\n".join(lines) + "\n")
+    return tuple(records)
 
 
 def _comparison_uncertainty(first, second):

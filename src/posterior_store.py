@@ -46,6 +46,27 @@ def _json(value):
     ).encode()
 
 
+def form_compiler_options():
+    """Snapshot the effective settings used to compile finite-element forms."""
+    from dolfinx import jit
+    from ffcx import options as ffcx_options
+
+    # Match the public resolvers, including cached local/user JSON choices.
+    # Cache placement, waiting time and logging do not change the calculation.
+    options = {
+        "dolfinx_jit": {
+            key: value for key, value in jit.get_options().items()
+            if key not in {"cache_dir", "timeout", "cffi_verbose"}
+        },
+        "ffcx": {
+            key: value for key, value in ffcx_options.get_options().items()
+            if key != "verbosity"
+        },
+    }
+    # Own nested lists rather than retaining aliases to cached option values.
+    return json.loads(_json(options))
+
+
 def numerical_environment():
     """Identify numerical sources, versions, precision and execution controls.
 
@@ -81,6 +102,16 @@ def numerical_environment():
         except importlib.metadata.PackageNotFoundError:
             versions[name] = None
     directory = Path(__file__).resolve().parent
+    compiler_options = None
+    petsc_options = None
+    if versions["petsc4py"] is not None:
+        from petsc4py import PETSc
+
+        # Includes options files, PETSC_OPTIONS and in-process changes; merely
+        # recording the environment variable misses files and in-process edits.
+        petsc_options = PETSc.Options().getAll()
+    if versions["fenics-dolfinx"] is not None and versions["fenics-ffcx"] is not None:
+        compiler_options = form_compiler_options()
     return {
         "python": platform.python_version(),
         "architecture": platform.machine(),
@@ -90,6 +121,8 @@ def numerical_environment():
         "versions": versions,
         "sqlite": sqlite3.sqlite_version,
         "native_builds": native_provenance.native_build_identity(),
+        "form_compiler_options": compiler_options,
+        "petsc_options": petsc_options,
         "sources": {
             name: hashlib.sha256((directory / (name + ".py")).read_bytes()).hexdigest()
             for name in _NUMERICAL_MODULES

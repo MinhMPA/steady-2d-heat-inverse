@@ -153,8 +153,9 @@ proposals repeat the last valid state and count as divergences. The legacy adapt
 heat-solve tolerances are not used here. For the measured macOS ARM64 MPICH
 environment, declare TCP transport and the clean compiler settings **before**
 starting Python, following [installation](installation.md#macos-mpich-transport-and-shutdown).
-The [dated evidence](validation/hmc-status.md#numerical-reproducibility) records the
-still-open limitation in identifying effective form-compiler settings.
+Effective form-compiler settings are now bound at problem construction and
+checked before continuation. Older numerical records remain readable but cannot
+be extended using changed sources or settings.
 
 ## Chains and trajectories
 

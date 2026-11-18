@@ -66,7 +66,7 @@ def test_adaptive_multifidelity_trace_keeps_forward_and_adjoint_synced():
     assert result.summary["total_adjoint_ksp_iterations"] > 0
 
 
-def test_adaptive_multifidelity_reduces_ksp_work_vs_fixed_baseline():
+def test_adaptive_multifidelity_preserves_reconstruction_accuracy():
     case = _small_case()
     fixed_method = BenchmarkMethod(
         name="fixed-rtol-1e-10",
@@ -90,9 +90,11 @@ def test_adaptive_multifidelity_reduces_ksp_work_vs_fixed_baseline():
     fixed = run_benchmark_case(case, fixed_method)
     adaptive = run_benchmark_case(case, adaptive_method)
 
-    assert (
-        adaptive.summary["total_ksp_iterations"] < fixed.summary["total_ksp_iterations"]
-    )
+    # Cheaper individual heat solves need not reduce total work: a looser
+    # gradient can require more line-search trials. Report, rather than assume,
+    # the measured cost of both reconstructions.
+    assert adaptive.summary["total_ksp_iterations"] > 0
+    assert fixed.summary["total_ksp_iterations"] > 0
     assert (
         adaptive.summary["final_objective"] <= 1.10 * fixed.summary["final_objective"]
     )
@@ -128,3 +130,59 @@ def test_noisy_observations_build_on_the_forward_solvers_space():
     assert np.isfinite(result.summary["final_objective"])
     assert np.isfinite(result.solution).all()
     assert result.solution.shape == result.truth.shape
+
+
+def test_benchmark_counts_every_line_search_heat_and_adjoint_solve(monkeypatch):
+    import benchmark_utils as benchmark
+
+    original = benchmark.build_inverse_problem
+    measured = {"forward": [], "adjoint": []}
+
+    def instrument(*args):
+        truth, forward, observations, adjoint = original(*args)
+        for name, equation in (("forward", forward), ("adjoint", adjoint)):
+            solve = equation.problem.solve
+
+            def counted(solve=solve, equation=equation, name=name):
+                result = solve()
+                measured[name].append(equation.problem.solver.getIterationNumber())
+                return result
+
+            monkeypatch.setattr(equation.problem, "solve", counted)
+        return truth, forward, observations, adjoint
+
+    monkeypatch.setattr(benchmark, "build_inverse_problem", instrument)
+    result = benchmark.run_benchmark_case(_small_case(), BenchmarkMethod(name="line-search", mit=50))
+    for name, work in measured.items():
+        assert result.summary[f"total_{name}_ksp_iterations"] == sum(work)
+        assert result.summary[f"total_{name}_solves"] == len(work)
+    # This case actually evaluates trial points outside the monitor trace.
+    assert len(measured["forward"]) > len(result.trace)
+
+
+def test_failed_assembly_does_not_recount_previous_ksp_iterations(monkeypatch):
+    from benchmark_utils import build_inverse_problem
+    from ._hmc_helpers import _release_problem
+
+    truth, forward, observations, adjoint = build_inverse_problem(
+        _small_case(), BenchmarkMethod(name="assembly-failure")
+    )
+    try:
+        for equation in (forward, adjoint):
+            equation.solve()
+            previous = equation.total_ksp_iterations
+            attempts = equation.total_linear_solves
+            assert previous > 0
+
+            def fail():
+                raise RuntimeError("assembly failed before KSP")
+
+            monkeypatch.setattr(equation.problem, "solve", fail)
+            import pytest
+            with pytest.raises(RuntimeError, match="assembly failed"):
+                equation.solve()
+            assert equation.total_ksp_iterations == previous
+            assert equation.total_linear_solves == attempts + 1
+    finally:
+        for equation in (truth, forward, adjoint):
+            _release_problem(equation.problem)

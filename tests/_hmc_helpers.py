@@ -59,7 +59,7 @@ def sensor_tangent_derivative(posterior, z, direction):
     import ufl
     from dataclasses import replace
     from petsc4py import PETSc
-    from dolfinx.fem.petsc import LinearProblem
+    from forward_solver import _linear_problem as LinearProblem
     from heat_model import HeatNumerics, canonical_dof_indices
     from temperature_observations import SensorOperator
 

@@ -25,6 +25,33 @@ from plotting_utils import plot_scalar_mesh
 _APPLICATION_PREFIXES = count()
 
 
+def _linear_problem(*args, petsc_options, **kwargs):
+    """Apply temporary solver options without leaving process-global entries.
+
+    The qualified PETSc release does not apply prefixPush to option deletion.
+    Use full keys for insertion and restoration, including failed setup.
+    """
+    problem = LinearProblem(*args, petsc_options=None, **kwargs)
+    options = PETSc.Options()
+    before = options.getAll()
+    prefix = problem.solver.getOptionsPrefix()
+    keys = [prefix + key for key in petsc_options]
+    try:
+        for key, value in petsc_options.items():
+            options[prefix + key] = value
+        problem.solver.setFromOptions()
+    except Exception:
+        _release_application_problem(problem)
+        raise
+    finally:
+        for key in keys:
+            if key in before:
+                options[key] = before[key]
+            elif options.hasName(key):
+                del options[key]
+    return problem
+
+
 def _release_application_problem(problem):
     """Release an owned trial problem before its eventual finalizer."""
     if problem is not None:
@@ -213,7 +240,7 @@ class SteadyHeat2DForwardSolver:
 
         if not hasattr(self, "T") or self.T.function_space != self.V:
             self.T = fem.Function(self.V, name="Temperature")
-        self.problem = LinearProblem(
+        self.problem = _linear_problem(
             self.a,
             self.L,
             u=self.T,
@@ -221,7 +248,8 @@ class SteadyHeat2DForwardSolver:
             petsc_options_prefix=prefix,
             petsc_options=self.petsc_opts,
         )
-        self.problem.solver.setInitialGuessNonzero(False)
+        self.total_ksp_iterations = 0
+        self.total_linear_solves = 0
 
     @property
     def coefficient_generation(self) -> int:
@@ -338,7 +366,7 @@ class SteadyHeat2DForwardSolver:
             trial._solve_application()
             # LinearProblem.u is read-only. Build the adopted forms through its
             # public constructor, preserving the original temperature object.
-            final_problem = LinearProblem(
+            final_problem = _linear_problem(
                 trial.a,
                 trial.L,
                 u=self.T,
@@ -352,7 +380,9 @@ class SteadyHeat2DForwardSolver:
             final_problem.solver.setErrorIfNotConverged(
                 self.problem.solver.getErrorIfNotConverged()
             )
-            final_problem.solver.setInitialGuessNonzero(False)
+            final_problem.solver.setInitialGuessNonzero(
+                self.problem.solver.getInitialGuessNonzero()
+            )
             final_problem.x.array[:] = trial_problem.x.array
             final_problem.x.ghostUpdate(
                 addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD
@@ -424,8 +454,12 @@ class SteadyHeat2DForwardSolver:
         -------
         T : the temperature distribution on the mesh.
         """
-        self.problem.solver.setInitialGuessNonzero(False)
-        self.problem.solve()
+        self.total_linear_solves += 1
+        self.problem.solver.setIterationNumber(0)
+        try:
+            self.problem.solve()
+        finally:
+            self.total_ksp_iterations += int(self.problem.solver.getIterationNumber())
         return self.T
 
     # Supporting method to inject a Gaussian noise field into the solution.

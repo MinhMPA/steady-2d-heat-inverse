@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -28,6 +29,27 @@ _RESOURCE_ERRNOS = frozenset(
         errno.ENFILE,
     }
 )
+
+
+def resource_exhausted(exc):
+    """Recognize exhausted memory/storage, including native SQLite errors.
+
+    Wrapped failures retain their resource meaning; an ordinary numerical
+    failure remains evidence about that calculation rather than the machine.
+    """
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, MemoryError) or getattr(exc, "errno", None) in _RESOURCE_ERRNOS:
+            return True
+        code = getattr(exc, "sqlite_errorcode", None)
+        if isinstance(code, int) and (
+            code & 0xFF in (sqlite3.SQLITE_FULL, sqlite3.SQLITE_NOMEM)
+            or code == getattr(sqlite3, "SQLITE_IOERR_NOMEM", None)
+        ):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 class ReplicaBusy(RuntimeError):
@@ -668,10 +690,8 @@ def execute_attempt(output, issued, *, index, replicates, work=None):
                         "message": str(exc),
                         "traceback": traceback.format_exc(),
                         "errno": getattr(exc, "errno", None),
-                        "resource_exhaustion": (
-                            isinstance(exc, MemoryError)
-                            or getattr(exc, "errno", None) in _RESOURCE_ERRNOS
-                        ),
+                        "resource_exhaustion": resource_exhausted(exc),
+                        "sqlite_errorcode": getattr(exc, "sqlite_errorcode", None),
                         "stage": stage,
                         "closed_unix": time.time(),
                     },

@@ -13,10 +13,9 @@ import ufl
 
 # dolfinx imports
 from dolfinx import fem, mesh
-from dolfinx.fem.petsc import LinearProblem
 
 # local imports
-from forward_solver import SteadyHeat2DForwardSolver
+from forward_solver import SteadyHeat2DForwardSolver, _linear_problem
 
 
 class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
@@ -107,7 +106,7 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
 
         # Set up the linear variational problem, lhs=self.a, rhs=self.L, bcs=self.bcs.
         self.lambda_L = fem.Function(self.V, name="AdjointState")
-        self.problem = LinearProblem(
+        self.problem = _linear_problem(
             self.a,
             self.L,
             u=self.lambda_L,
@@ -115,6 +114,8 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
             petsc_options_prefix="s2dhi_adj_",
             petsc_options=opts,
         )
+        self.total_ksp_iterations = 0
+        self.total_linear_solves = 0
 
     def _check_coefficient_generation(self):
         if self._forward.coefficient_generation != self._forward_generation:
@@ -131,7 +132,12 @@ class SteadyHeat2DAdjointSolver(SteadyHeat2DForwardSolver):
         lambda_L : the Lagrangian multiplier function, aka adjoint state vector.
         """
         self._check_coefficient_generation()
-        self.problem.solve()
+        self.total_linear_solves += 1
+        self.problem.solver.setIterationNumber(0)
+        try:
+            self.problem.solve()
+        finally:
+            self.total_ksp_iterations += int(self.problem.solver.getIterationNumber())
         return self.lambda_L
 
     def assemble_gradient(self) -> PETSc.Vec:

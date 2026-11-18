@@ -231,8 +231,8 @@ exported NumPy fields in a separate plotting environment.
 
 A fresh-cache compilation must complete **and its process must exit** within
 the declared bound. It complements the three independent MPI-exit checks; it
-does not establish posterior convergence. The [16 November numerical
-reproducibility limits](validation/hmc-status.md#numerical-reproducibility) include
-an open omission of effective local/user DOLFINx and FFCx settings from saved
-continuation identities. Keep those compiler settings unchanged independently;
-these platform-specific commands do not correct that omission.
+does not establish posterior convergence. Effective local/user DOLFINx and FFCx
+settings now enter continuation identity, correcting the omission in the
+[16 November review](validation/hmc-status.md#numerical-reproducibility).
+Changing compiler settings requires constructing a new inverse problem and a
+new calculation; older archives remain available for read-only analysis.

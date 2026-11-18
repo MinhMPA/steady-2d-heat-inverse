@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from itertools import count
+from weakref import WeakSet
 
 # numerical imports
 import numpy as np
@@ -125,9 +126,12 @@ class HeatInverseProblem:
     def __init__(
         self, *, forward, observations, prior, numerics: HeatNumerics | None = None
     ):
+        from posterior_store import form_compiler_options
+
         self._closed = False
-        self._workspaces = []
+        self._workspaces = WeakSet()
         self._forward = forward
+        self._compiler_options = form_compiler_options()
         try:
             self._model = FrozenHeatModel.from_forward(forward)
             if not isinstance(observations, TemperatureObservations):
@@ -228,11 +232,21 @@ class HeatInverseProblem:
     def _new_posterior(self, *, prefix: str) -> ConductivityPosterior:
         r"""Construct an independently owned workspace from frozen inputs."""
         self._require_open()
+        self._require_compiler_options()
         posterior = ConductivityPosterior(
             self._model, self._observations, self._prior, self._numerics, prefix=prefix
         )
-        self._workspaces.append(posterior)
+        self._workspaces.add(posterior)
         return posterior
+
+    def _require_compiler_options(self):
+        from posterior_store import form_compiler_options
+
+        if form_compiler_options() != self._compiler_options:
+            raise ValueError(
+                "Effective form compiler settings changed after constructing the "
+                "posterior; construct a new HeatInverseProblem."
+            )
 
     def initial_state(
         self, value: PosteriorEstimate | InferredState | FieldInput
@@ -534,6 +548,7 @@ class HeatInverseProblem:
 
         self._require_open()
         model = self._model
+        self._require_compiler_options()
         environment = numerical_environment()
         metadata = {
             "schema_version": 1,
@@ -590,7 +605,7 @@ class HeatInverseProblem:
             adjoint workspaces. No original Python callable or JAX is required.
         """
         from dolfinx import fem
-        from posterior_store import ProblemRecord
+        from posterior_store import ProblemRecord, form_compiler_options
 
         if not isinstance(record, ProblemRecord):
             raise TypeError("record must be a ProblemRecord.")
@@ -701,8 +716,9 @@ class HeatInverseProblem:
             raise ValueError("Prior mean must retain every physical node.")
         instance = cls.__new__(cls)
         instance._closed = False
-        instance._workspaces = []
+        instance._workspaces = WeakSet()
         instance._forward = None
+        instance._compiler_options = form_compiler_options()
         try:
             instance._model = model
             instance._observations = observations
@@ -779,9 +795,9 @@ class HeatInverseProblem:
         if getattr(self, "_closed", True):
             return
         self._closed = True
-        for posterior in getattr(self, "_workspaces", ()):
+        for posterior in list(getattr(self, "_workspaces", ())):
             posterior.close()
-        self._workspaces = []
+        self._workspaces = WeakSet()
 
     def __enter__(self):
         self._require_open()

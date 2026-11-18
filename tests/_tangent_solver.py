@@ -10,7 +10,7 @@ import ufl
 
 # dolfinx imports
 from dolfinx import fem, mesh
-from dolfinx.fem.petsc import LinearProblem
+from forward_solver import _linear_problem as LinearProblem
 
 # local imports
 from forward_solver import SteadyHeat2DForwardSolver

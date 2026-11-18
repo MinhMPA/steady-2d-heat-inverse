@@ -1,5 +1,13 @@
 # Conductivity inference: evidence as of 16 November 2026
 
+**Source corrections, 17 November:** the defects described in this historical
+snapshot have been corrected in PR #2. The
+{download}`correction review <../superpowers/reviews/2026-11-17-hmc-corrections.md>`
+records the changes and verification scope. Saved scientific records and the
+calibration/mesh/prior conclusions below have not been recomputed. Current
+complete-suite and CI results are recorded in the
+[PR opening message](https://github.com/MinhMPA/steady-2d-heat-inverse/pull/2).
+
 Noisy temperature measurements constrain conductivity through the steady heat
 equation. Agreement among posterior chains tests how well we have sampled one
 chosen discrete posterior. Repeated synthetic experiments test whether its
@@ -11,9 +19,10 @@ The evidence below was read on **16 November 2026**. The sampling source is
 `aeee1b22777fe7b2241b945fde68b39728b357fd`. The common ancestor with the inspected
 `origin/master` is `493e8dc09c4429a0a2c7cf265b3349dc5216ba61`. This identifies the
 reviewed branch evidence; it does not establish that sampling is on `master`.
-No corrective implementation commit follows the reviewed source in this
-snapshot. The limitations in the {download}`16 November review
-<../superpowers/reviews/2026-11-16-hmc-review.md>` therefore remain open.
+No corrective implementation commit followed the reviewed source in that
+snapshot. The {download}`16 November review
+<../superpowers/reviews/2026-11-16-hmc-review.md>` remains the record of those
+original findings; the dated correction above supersedes their open status.
 
 ```{raw} html
 <style>

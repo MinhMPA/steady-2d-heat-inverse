@@ -71,9 +71,11 @@ optimizing and sampling preserve its current conductivity and temperature.
 
 `problem_id` labels the physical experiment, noise law and prior;
 `numerics_id` separately labels recorded numerical settings. Neither includes
-the caller's present trial conductivity or temperature. The known omitted
-form-compiler settings mean these identities alone cannot yet certify unchanged
-numerics; see the [current limitation](../validation/hmc-status.md#numerical-reproducibility).
+the caller's present trial conductivity or temperature. The saved physical
+record additionally binds effective form-compiler options, the PETSc options
+database, numerical sources and native libraries to continuation. Compiler
+settings are frozen at construction; changed settings require a new problem.
+Private heat/adjoint options must be declared through `HeatNumerics`.
 
 | Call or result | Meaning |
 | --- | --- |

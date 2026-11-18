@@ -86,6 +86,13 @@ def work(output, index, total, identity, cancel):
     if mode == "resource_failure":
         import errno
         raise OSError(errno.ENOSPC, "manufactured unavailable storage")
+    if mode == "sqlite_full":
+        import sqlite3
+        with sqlite3.connect(":memory:") as db:
+            db.execute("PRAGMA max_page_count=2")
+            db.execute("CREATE TABLE payload (data BLOB)")
+            db.execute("INSERT INTO payload VALUES (zeroblob(65536))")
+        raise AssertionError("The SQLite fixture did not exhaust its page limit")
     if mode == "crash":
         atomic_json(directory / "committed.json", {"index": index, "target": 16})
         os._exit(19)
@@ -403,6 +410,7 @@ def test_known_resource_failure_stops_admission(tmp_path, worker_script):
     [
         ("memory_failure", "MemoryError"),
         ("memory_subclass_failure", "ReplicaMemoryError"),
+        ("sqlite_full", "OperationalError"),
     ],
 )
 def test_python_memory_exhaustion_stops_admission_and_persists(
